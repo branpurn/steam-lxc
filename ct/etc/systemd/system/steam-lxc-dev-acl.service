@@ -1,0 +1,9 @@
+[Unit]
+Description=steam-lxc: grant the session user rw on DRI/input/uinput nodes
+After=local-fs.target
+StartLimitIntervalSec=0
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/steam-lxc/dev-acl.sh
+[Install]
+WantedBy=multi-user.target

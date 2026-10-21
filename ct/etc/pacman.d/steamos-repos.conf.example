@@ -1,0 +1,10 @@
+# --- Valve SteamOS 3.9 repos (AFTER Arch repos so Arch wins name clashes). ---
+# Install only explicitly named packages from these. Packages are signed by holo-keyring keys;
+# repo DBs are not signed (no .db.sig), hence DatabaseOptional.
+[holo-3.9]
+SigLevel = Required DatabaseOptional
+Server = https://steamdeck-packages.steamos.cloud/archlinux-mirror/$repo/os/$arch
+
+[jupiter-3.9]
+SigLevel = Required DatabaseOptional
+Server = https://steamdeck-packages.steamos.cloud/archlinux-mirror/$repo/os/$arch

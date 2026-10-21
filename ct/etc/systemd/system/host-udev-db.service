@@ -1,0 +1,11 @@
+[Unit]
+Description=Expose host udev db (read-only) for logind seat enumeration
+DefaultDependencies=no
+After=local-fs.target
+Before=systemd-logind.service steamos-session.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c "mkdir -p /run/udev && mount --bind /mnt/host-udev /run/udev"
+[Install]
+WantedBy=sysinit.target

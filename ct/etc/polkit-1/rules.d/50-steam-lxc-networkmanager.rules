@@ -1,0 +1,6 @@
+// Let the session user manage NetworkManager (Steam creates the Frame dongle connection when pairing).
+polkit.addRule(function(action, subject) {
+    if (action.id.indexOf("org.freedesktop.NetworkManager.") == 0 && subject.user == "steam") {
+        return polkit.Result.YES;
+    }
+});

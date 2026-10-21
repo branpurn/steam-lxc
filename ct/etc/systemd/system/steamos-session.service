@@ -1,0 +1,17 @@
+[Unit]
+Description=steam-lxc Game Mode session (gamescope + Steam Big Picture)
+After=systemd-user-sessions.service host-udev-db.service steam-lxc-dev-acl.service network-online.target
+Wants=network-online.target
+Conflicts=steamos-desktop-session.service
+[Service]
+User=steam
+Group=steam
+SupplementaryGroups=video render input audio
+PAMName=login
+Environment=XDG_SEAT=seat0 XDG_SESSION_CLASS=user XDG_SESSION_TYPE=x11
+ExecStartPre=+/usr/local/lib/steam-lxc/dev-acl.sh
+ExecStart=/usr/local/bin/steamos-session
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target

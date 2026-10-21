@@ -1,0 +1,3 @@
+# steam-lxc overrides, sourced after /usr/share/gamescope-session-plus/sessions.d/steam
+# Prefer the HDMI panel, then any connector.
+OUTPUT_CONNECTOR="HDMI-A-2,*"
