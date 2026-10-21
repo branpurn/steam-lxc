@@ -1,0 +1,7 @@
+[Unit]
+Description=steam-lxc: re-apply device ACLs when DRI nodes change
+[Path]
+PathChanged=/dev/dri
+Unit=steam-lxc-dev-acl.service
+[Install]
+WantedBy=multi-user.target

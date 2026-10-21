@@ -1,0 +1,9 @@
+[Unit]
+Description=steam-lxc: periodically re-apply device ACLs (udev uevents are read-only in LXC)
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=steam-lxc-dev-acl.service
+[Install]
+WantedBy=timers.target

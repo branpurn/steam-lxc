@@ -1,0 +1,6 @@
+#!/bin/sh
+# vrcompositor dlopens "libdrm.so" (unversioned). Arch's libdrm ships it already; create it only if missing.
+set -eu
+for d in /usr/lib /usr/lib32; do
+  [ -e "$d/libdrm.so" ] || { [ -e "$d/libdrm.so.2" ] && ln -s libdrm.so.2 "$d/libdrm.so" && echo "created $d/libdrm.so"; }
+done

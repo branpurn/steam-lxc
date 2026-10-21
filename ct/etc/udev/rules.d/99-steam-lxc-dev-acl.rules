@@ -1,0 +1,3 @@
+# Best effort only: uevents are usually read-only inside a privileged LXC; the .path/.timer units are the reliable trigger.
+ACTION=="add|change", SUBSYSTEM=="drm", KERNEL=="card[0-9]*|renderD*", TAG+="systemd", ENV{SYSTEMD_WANTS}+="steam-lxc-dev-acl.service"
+ACTION=="add|change", KERNEL=="ntsync|uinput|hidraw*|event*", TAG+="systemd", ENV{SYSTEMD_WANTS}+="steam-lxc-dev-acl.service"

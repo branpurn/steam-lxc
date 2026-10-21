@@ -1,0 +1,11 @@
+#!/bin/bash
+# VNC view/control of the Game Mode session. gamescope's Xwayland is rootless, so GetImage on the root
+# window fails (X_GetImage BadMatch); attach x11vnc to the Steam Big Picture window instead (-id).
+# Password: ~/.vnc/passwd (x11vnc -storepasswd; VNC only uses the first 8 characters). Restrict 5900 with a firewall.
+export DISPLAY=${DISPLAY:-:0}
+for i in $(seq 120); do
+  wid=$(xwininfo -root -tree 2>/dev/null | awk '/"Steam Big Picture Mode"/{print $1; exit}')
+  [ -n "$wid" ] && break; sleep 2
+done
+[ -n "$wid" ] || { echo "steam-lxc-vnc: Steam Big Picture window not found" >&2; exit 1; }
+exec x11vnc -display "$DISPLAY" -id "$wid" -rfbport 5900 -rfbauth "$HOME/.vnc/passwd" -forever -shared -noxdamage -noxrecord -quiet
