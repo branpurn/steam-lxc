@@ -31,23 +31,55 @@ LOCK_FILE=$FRAME_RUN/steamvr.lock
 FLAT_SPOOL=$FRAME_RUN/flat.d
 
 # Graceful stop. SteamVR on Linux has no supported "quit" command line (vrcmd/vrmonitor only offer in-app quit), so:
-# 1. an optional site command (FRAME_SHIM_STEAMVR_YIELD_QUIT_CMD), 2. SIGTERM to the exact vrserver PID(s), which
-# shuts SteamVR down like its own Quit, 3. helpers left behind are TERMed (then KILLed) only once no vrserver runs.
-# vrserver itself is never SIGKILLed.
+# 1. an optional site command (FRAME_SHIM_STEAMVR_YIELD_QUIT_CMD);
+# 2. SIGTERM to the exact vrmonitor PID(s) (same UID, exact comm, executable inside the SteamVR install). This is the
+#    SteamVR UI process; ending it shuts the whole SteamVR tree down like its own Quit. A vrserver alone may ignore
+#    SIGTERM while its vrmonitor lives;
+# 3. if vrserver is still up: SIGTERM to the exact vrserver PID(s);
+# 4. if it is still up: leave it and log (or, only with FRAME_SHIM_STEAMVR_YIELD_SIGKILL=1, SIGKILL vrserver);
+# 5. wait for vrcompositor to be gone, then TERM (then KILL) helpers left behind, only once no vrserver runs.
+# While SteamVR runs, Steam streams on the VR path (VR_MovieStream) to EVERY Remote Play client, not only the Frame:
+# a desktop client then gets no video. That is why a stop that fails is logged loudly.
+_vr_wait() {   # $1 seconds: wait until no vrserver runs; 0 = gone
+    local i; for i in $(seq "$1"); do vr_up || return 0; sleep 1; done; ! vr_up
+}
 stop_steamvr() {
     local why=$1 p a b
     vr_up || return 0
     flog "yield: stopping SteamVR ($why)"
     if [ -n "${FRAME_SHIM_STEAMVR_YIELD_QUIT_CMD:-}" ]; then
         timeout 10 sh -c "$FRAME_SHIM_STEAMVR_YIELD_QUIT_CMD" >/dev/null 2>&1
-        for _ in $(seq 10); do vr_up || break; sleep 1; done
+        _vr_wait 10
+    fi
+    if vr_up; then
+        a=$(steamvr_procs vrmonitor)
+        if [ -n "$a" ]; then
+            flog "yield: SIGTERM to vrmonitor ($(echo $a))"
+            kill -TERM $a 2>/dev/null
+            _vr_wait "${FRAME_SHIM_STEAMVR_MONITOR_WAIT:-10}"
+        fi
     fi
     if vr_up; then
         a=$(steamvr_procs vrserver)
-        [ -n "$a" ] && kill -TERM $a 2>/dev/null
-        for _ in $(seq "${FRAME_SHIM_STEAMVR_YIELD_STOP_TIMEOUT:-15}"); do vr_up || break; sleep 1; done
+        if [ -n "$a" ]; then
+            flog "yield: SIGTERM to vrserver ($(echo $a))"
+            kill -TERM $a 2>/dev/null
+            _vr_wait "${FRAME_SHIM_STEAMVR_YIELD_STOP_TIMEOUT:-15}"
+        fi
     fi
-    if vr_up; then flog "yield: SteamVR still running after SIGTERM; leaving it (no SIGKILL of vrserver)"; return 1; fi
+    if vr_up && [ "${FRAME_SHIM_STEAMVR_YIELD_SIGKILL:-0}" = 1 ]; then
+        a=$(steamvr_procs vrserver)
+        flog "yield: vrserver ignored SIGTERM; SIGKILL ($(echo $a)) because FRAME_SHIM_STEAMVR_YIELD_SIGKILL=1"
+        [ -n "$a" ] && kill -KILL $a 2>/dev/null
+        _vr_wait 5
+    fi
+    if vr_up; then
+        flog "yield: SteamVR still running after SIGTERM to vrmonitor and vrserver; leaving it (no SIGKILL of vrserver)." \
+             "Remote Play clients (all of them, not only the Frame) stay on VR_MovieStream and may get no video"
+        return 1
+    fi
+    for _ in $(seq "${FRAME_SHIM_STEAMVR_COMPOSITOR_WAIT:-10}"); do [ -z "$(steamvr_procs vrcompositor)" ] && break; sleep 1; done
+    [ -n "$(steamvr_procs vrcompositor)" ] && flog "yield: vrcompositor still running after vrserver exited; reaping"
     sleep "${FRAME_SHIM_YIELD_REAP_GRACE:-3}"
     vr_up && return 0
     a=$(steamvr_procs 'vrmonitor|vrdashboard|vrwebhelper|vrcompositor|vrstartup')
@@ -56,7 +88,8 @@ stop_steamvr() {
         for _ in 1 2 3 4 5; do b=$(for p in $a; do kill -0 "$p" 2>/dev/null && echo "$p"; done); [ -z "$b" ] && break; sleep 1; done
         [ -n "$b" ] && kill -KILL $b 2>/dev/null
     fi
-    flog "yield: SteamVR stopped"
+    if [ -n "$(steamvr_procs vrcompositor)" ]; then flog "yield: vrcompositor still running; SteamVR not fully stopped"; return 1; fi
+    flog "yield: SteamVR stopped (vrcompositor gone)"
     return 0
 }
 

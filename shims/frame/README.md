@@ -179,11 +179,21 @@ per appid and appinfo mtime in `$XDG_RUNTIME_DIR/steam-lxc-frame/vrclass`.
 **Stopping SteamVR:** SteamVR on Linux has no supported "quit" command line (`vrcmd` has none; vrmonitor only quits
 from its UI). The steps are:
 1. Run `FRAME_SHIM_STEAMVR_YIELD_QUIT_CMD`, if set.
-2. Send SIGTERM to the exact vrserver PID (same UID, exact comm, executable inside the SteamVR install). It shuts
-   down like SteamVR's own Quit.
-3. Reap SteamVR helpers left without a vrserver (TERM, then KILL), as in section 1.
+2. Send SIGTERM to the exact vrmonitor PID(s) (same UID, exact comm, executable inside the SteamVR install). vrmonitor
+   is SteamVR's UI process, and ending it shuts the whole tree down like SteamVR's own Quit. vrserver on its own can
+   ignore SIGTERM while its vrmonitor lives. The wait is `FRAME_SHIM_STEAMVR_MONITOR_WAIT` (10 s).
+3. If vrserver is still up, send SIGTERM to the exact vrserver PID(s) and wait `FRAME_SHIM_STEAMVR_YIELD_STOP_TIMEOUT` (15 s).
+4. Check that vrcompositor is gone (`FRAME_SHIM_STEAMVR_COMPOSITOR_WAIT`, 10 s). Then reap any SteamVR helpers left
+   without a vrserver (TERM, then KILL), as in section 1.
 
-A vrserver that ignores SIGTERM is left running and logged. It is never SIGKILLed. Nothing uses `pkill`/`killall`.
+A vrserver that survives both is left running and logged. It is SIGKILLed only with
+`FRAME_SHIM_STEAMVR_YIELD_SIGKILL=1` (off by default). Nothing uses `pkill`/`killall`. If the stop fails, the yield
+still holds: SteamVR is not relaunched while that game runs.
+
+**Every Remote Play client is affected, not only the Frame.** While SteamVR runs, Steam streams a launched game on the
+VR path (`VR_MovieStream`) to any Remote Play client, including a desktop client. That client then gets no video. A
+failed stop is logged with this note.
+
 A vrserver the loop stopped itself is not treated as a crash. A vrserver that dies on its own is relaunched after
 `FRAME_SHIM_STEAMVR_RELAUNCH_DELAY` seconds (default 30) inside the loop. The unit is only restarted by systemd after
 `FRAME_SHIM_STEAMVR_MAX_FAILS` (5) launches in a row that bring up no vrserver.
