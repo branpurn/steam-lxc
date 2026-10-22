@@ -28,3 +28,24 @@ STEAM_LXC_NVIDIA_TWEAKS=0
 # Connectors to keep awake: if one is connected and its DPMS goes Off, ask gamescope to wake it. Empty = disabled.
 KEEPAWAKE_CONNECTORS=
 KEEPAWAKE_INTERVAL=10
+
+# --- Frame shim (shims/frame/, pending better Steam Frame support in SteamOS from Valve). All off by default. ---
+# 1 = start SteamVR automatically after Steam is up and restart it on failure (systemd user unit steam-lxc-steamvr)
+FRAME_SHIM_STEAMVR_ALWAYS_ON=0
+# Seconds to wait after Steam is up before starting SteamVR
+FRAME_SHIM_STEAMVR_START_DELAY=20
+# 1 = before each start, set SteamVR settings that keep its desktop windows quiet (mirror view, SteamVR Home off)
+FRAME_SHIM_STEAMVR_QUIET=0
+# 1 = merge a LastKnown headset block into steamvr.vrsettings (only while SteamVR is stopped; backup kept).
+# Copy the values from a working install's steamvr.vrsettings. Keep them in this local file only.
+FRAME_SHIM_LASTKNOWN_SEED=0
+FRAME_LASTKNOWN_DRIVER=vrlink
+FRAME_LASTKNOWN_MANUFACTURER=
+FRAME_LASTKNOWN_MODEL=
+FRAME_LASTKNOWN_SERIAL=
+FRAME_LASTKNOWN_CLIENT_ID=
+# 1 = install rtkit (pacman --needed, no system upgrade) so SteamVR's realtime priority requests succeed
+FRAME_SHIM_RTKIT=0
+# 1 = let NetworkManager manage the Steam Frame Wireless Adapter interface (and nothing else)
+FRAME_SHIM_DONGLE_NM=0
+FRAME_DONGLE_IFACE=wlframe0

@@ -1,0 +1,7 @@
+// Frame shim: let the session user manage NetworkManager (Steam creates the
+// "Steam Frame Wireless Adapter" connection itself when pairing). STEAM_LXC_USER is substituted at install.
+polkit.addRule(function(action, subject) {
+    if (action.id.indexOf("org.freedesktop.NetworkManager.") == 0 && subject.user == "@STEAM_LXC_USER@") {
+        return polkit.Result.YES;
+    }
+});
