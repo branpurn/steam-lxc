@@ -7,5 +7,7 @@ export KWIN_DRM_DEVICES=/dev/dri/card1 LANG=${LANG:-en_US.UTF-8}
 # stop it. With systemd boot, Plasma would run inside the user manager and survive a switch.
 kwriteconfig6 --file startkderc --group General --key systemdBoot false
 systemctl --user start pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
+# TV-style: no idle dimming/DPMS-off/suspend/lock (STEAM_LXC_DESKTOP_NO_IDLE)
+/usr/local/lib/steam-lxc/desktop-no-idle || true
 # pam_systemd adds ambient caps; Steam's srt-bwrap refuses to run with them. Drop before exec.
 exec setpriv --inh-caps=-all --ambient-caps=-all dbus-run-session -- startplasma-wayland

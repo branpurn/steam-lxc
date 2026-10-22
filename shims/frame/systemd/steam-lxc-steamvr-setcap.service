@@ -1,0 +1,7 @@
+[Unit]
+Description=steam-lxc Frame shim: setcap cap_sys_nice on vrcompositor-launcher (only if the bounding set allows it)
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/local/lib/steam-lxc/frame/steamvr-setcap

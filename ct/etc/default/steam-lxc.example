@@ -20,6 +20,10 @@ DESKTOP_SCALE=
 # 1 = turn off every other connected output (e.g. a dummy plug) in Desktop Mode
 DESKTOP_DISABLE_OTHER_OUTPUTS=0
 
+# 1 = Desktop Mode never dims/turns off the display, never suspends and never locks (TV-style; written for the
+# session user at each Desktop Mode start)
+STEAM_LXC_DESKTOP_NO_IDLE=1
+
 # --- Options ---
 # 1 = never advertise or enable HDR (gamescope display script + session env + wrapper; Plasma HDR off)
 STEAM_LXC_DISABLE_HDR=0
@@ -44,6 +48,9 @@ FRAME_LASTKNOWN_MANUFACTURER=
 FRAME_LASTKNOWN_MODEL=
 FRAME_LASTKNOWN_SERIAL=
 FRAME_LASTKNOWN_CLIENT_ID=
+# 1 = setcap cap_sys_nice=eip on vrcompositor-launcher (and re-apply after SteamVR updates), so SteamVR starts with no
+# superuser prompt. Requires CAP_SYS_NICE + CAP_SETFCAP in the CT bounding set (shims/frame/host/); refused otherwise.
+FRAME_SHIM_STEAMVR_SETCAP=0
 # 1 = install rtkit (pacman --needed, no system upgrade) so SteamVR's realtime priority requests succeed
 FRAME_SHIM_RTKIT=0
 # 1 = let NetworkManager manage the Steam Frame Wireless Adapter interface (and nothing else)
