@@ -73,31 +73,31 @@ cat >"$T/modetest" <<'S'
 #!/bin/bash
 printf 'Connectors:\nid\tencoder\tstatus\t\tname\t\tsize (mm)\tmodes\tencoders\n'
 printf '120\t0\tconnected\tDP-4\t0x0\t1\t0\n  props:\n\t5 link-status:\n\t\tflags: enum\n\t\tenums: Good=0 Bad=1\n\t\tvalue: 0\n'
-printf '129\t128\tconnected\tHDMI-A-2\t600x340\t33\t128\n  props:\n\t5 link-status:\n\t\tflags: enum\n\t\tenums: Good=0 Bad=1\n\t\tvalue: %s\n' "${LINK:-1}"
+printf '129\t128\tconnected\tHDMI-A-1\t600x340\t33\t128\n  props:\n\t5 link-status:\n\t\tflags: enum\n\t\tenums: Good=0 Bad=1\n\t\tvalue: %s\n' "${LINK:-1}"
 S
 chmod +x "$T/modetest"
-ok "link Bad" '[ "$(STEAM_LXC_CONF=$T/conf WD_MODETEST=$T/modetest "$WD" link-status HDMI-A-2)" = "HDMI-A-2 Bad" ]'
-ok "link Good" '[ "$(LINK=0 STEAM_LXC_CONF=$T/conf WD_MODETEST=$T/modetest "$WD" link-status HDMI-A-2)" = "HDMI-A-2 Good" ]'
+ok "link Bad" '[ "$(STEAM_LXC_CONF=$T/conf WD_MODETEST=$T/modetest "$WD" link-status HDMI-A-1)" = "HDMI-A-1 Bad" ]'
+ok "link Good" '[ "$(LINK=0 STEAM_LXC_CONF=$T/conf WD_MODETEST=$T/modetest "$WD" link-status HDMI-A-1)" = "HDMI-A-1 Good" ]'
 ok "other connector" '[ "$(STEAM_LXC_CONF=$T/conf WD_MODETEST=$T/modetest "$WD" link-status DP-4)" = "DP-4 Good" ]'
 
 # 8. poll -> event on Bad
-setup "HDMI_WATCHDOG_CONNECTORS=HDMI-A-2"
+setup "HDMI_WATCHDOG_CONNECTORS=HDMI-A-1"
 STEAM_LXC_CONF=$T/conf HDMI_WATCHDOG_STATE_DIR=$T/run WD_NOW_CMD=$T/now WD_SLEEP=$T/sleep WD_LOGGER=$T/logger WD_WAKE=$T/wake \
   WD_SYSTEMCTL=$T/systemctl WD_MODETEST=$T/modetest WD_POLL_ONCE=1 "$WD" poll >>"$T/out" 2>&1
-ok "poll triggers" 'grep -q "link-status Bad on HDMI-A-2" "$T/log" && grep -q "wake sleep" "$T/actions"'
+ok "poll triggers" 'grep -q "link-status Bad on HDMI-A-1" "$T/log" && grep -q "wake sleep" "$T/actions"'
 
 # 9. host helper: matching kernel lines -> pct exec event for running CTs only
 cat >"$T/pct" <<S
 #!/bin/bash
-case "\$1" in status) [ "\$2" = 601 ] && echo "status: running" || echo "status: stopped" ;; exec) echo "pct \$*" >>"$T/pct.log" ;; esac
+case "\$1" in status) [ "\$2" = 201 ] && echo "status: running" || echo "status: stopped" ;; exec) echo "pct \$*" >>"$T/pct.log" ;; esac
 S
 cat >"$T/src" <<'S'
 #!/bin/bash
 printf 'nvidia-modeset: something else\nnvidia-modeset: WARNING: GPU:0: HDMI FRL link training failed.\n'
 S
 chmod +x "$T/pct" "$T/src"; : >"$T/pct.log"; : >"$T/log"
-HDMI_WATCHDOG_CTS="600 601" WD_PCT=$T/pct WD_LOGGER=$T/logger WD_SOURCE=$T/src "$HOSTWD"
-ok "host forwards to running CT" '[ "$(cat "$T/pct.log")" = "pct exec 601 -- /usr/local/sbin/steam-lxc-hdmi-watchdog event host kernel: link training failed" ]'
-ok "host logs intent" 'grep -q "event to CT 601" "$T/log"'
+HDMI_WATCHDOG_CTS="200 201" WD_PCT=$T/pct WD_LOGGER=$T/logger WD_SOURCE=$T/src "$HOSTWD"
+ok "host forwards to running CT" '[ "$(cat "$T/pct.log")" = "pct exec 201 -- /usr/local/sbin/steam-lxc-hdmi-watchdog event host kernel: link training failed" ]'
+ok "host logs intent" 'grep -q "event to CT 201" "$T/log"'
 
 echo "HDMI watchdog: $pass passed, $fail failed"; [ $fail = 0 ]
