@@ -65,3 +65,24 @@
   desktop mode to switch to.
 - **Verified:** two real restarts. Each left exactly one gamescope and one seat0 session, NRestarts=0, HDMI On,
   and the Steam login was kept.
+
+## HDR permanently off, 4K @ 120 Hz (artifacting on the HDMI panel)
+- **Finding:** `--hdr-enabled` alone is not the switch. gamescope 3.16.31 reads HDR support from the panel's EDID and
+  advertises it (`GAMESCOPE_DISPLAY_SUPPORTS_HDR=1`). Steam then sets `GAMESCOPE_DISPLAY_HDR_ENABLED=1` (a persisted Steam
+  setting), and the log showed `xwm: HDR output enabled` even without the flag and with `ENABLE_GAMESCOPE_HDR` unset.
+- **Fix:** all in `/etc`, which pacman/AUR updates don't touch.
+  - `/etc/gamescope/scripts/50-steam-lxc-no-hdr.lua` adds a catch-all known-display entry with `hdr.supported = false`.
+    gamescope now advertises `GAMESCOPE_DISPLAY_SUPPORTS_HDR=0`, so HDR can't activate whatever Steam's setting says.
+  - `/etc/gamescope-session-plus/sessions.d/steam`, sourced after the package's file, sets `ENABLE_GAMESCOPE_HDR=0`,
+    `STEAM_GAMESCOPE_HDR_SUPPORTED=0`, `ENABLE_HDR_WSI=0` and `DXVK_HDR=0`.
+  - The `steam-lxc-gamescope` wrapper (`GAMESCOPE_BIN`) also strips any `--hdr-*` flag.
+- **Mode:** `SCREEN_WIDTH=3840 SCREEN_HEIGHT=2160` gives `-W/-H`. For the refresh, the DRM backend's preferred refresh comes from
+  `-r`, and gamescope-session-plus has no variable for it, so the wrapper adds `-r $GAMESCOPE_OUTPUT_REFRESH` (120).
+  The panel also offers 3840x2160@144; set `GAMESCOPE_OUTPUT_REFRESH=144` to use it.
+- **Verified:** after restarting the session there was one gamescope (`/usr/bin/gamescope -r 120 -W 3840 -H 2160 ...`) and the log showed
+  `drm: selecting mode 3840x2160@120Hz`, `Got known display: steam_lxc_no_hdr`, with no `HDR output enabled`. The root properties were
+  `SUPPORTS_HDR=0` and `HDR_ENABLED=1` (Steam's setting, now ineffective). HDMI DPMS was On and Steam was still signed in.
+- **Other log lines (benign):** `Immediate flips disabled from environment` (`GAMESCOPE_DISABLE_ASYNC_FLIPS=1` from session-plus)
+  and `zero modifiers for DRM format AB48/XB48` (16-bit formats the NVIDIA driver doesn't export). No NV12/import/commit failures were logged.
+  The green-screen-on-NVIDIA issue concerns Remote Play capture (NV12 over PipeWire), not the local panel.
+- **Steam FPS cap:** no frame-limit setting is stored in Steam's config. The default is unlimited, but the per-game QAM setting is not checked yet.

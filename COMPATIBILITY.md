@@ -25,6 +25,8 @@ CT: Arch Linux (archlinux-base 2026-04-20 template, updated 2026-10-21), gamesco
 | Controllers / Steam Input (`/dev/uinput`, `/dev/input`) | passed through, ACLs applied | unverified |
 | hidraw | not passed through | unverified / not configured |
 | gamescope `CAP_SYS_NICE` (`setcap`) | fails: CAP_SETFCAP is dropped inside the CT | **verified** (not possible) |
-| HDR, VRR | — | unverified |
+| HDR | permanently disabled (gamescope script hdr.supported=false + session env); SUPPORTS_HDR=0 | **verified** off |
+| Output mode | 3840x2160@120 on HDMI (`-W/-H` + `-r` via wrapper) | **verified** |
+| VRR | — | unverified |
 | Desktop mode ("Switch to Desktop") | not installed | not implemented |
 | Mutual exclusion with the other GPU CT | `pct start` of the other CT is refused while this one runs | **verified** |
