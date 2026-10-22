@@ -23,21 +23,24 @@ mode. If SteamVR is already running, the game attaches to it.
 **How:** `steam-lxc-steamvr.service` is a systemd **user** unit for the Steam user. Its `ExecCondition` skips it
 unless the toggle is 1. The script:
 1. waits until `~/.steam/steam.pid` is alive and `steamwebhelper` runs;
-2. copies `DISPLAY`/`WAYLAND_DISPLAY`/`XDG_RUNTIME_DIR`/D-Bus from the Steam process;
-3. waits `FRAME_SHIM_STEAMVR_START_DELAY` seconds;
-4. runs `steamapps/common/SteamVR/bin/vrstartup.sh` (verified path; it starts vrmonitor, which starts vrserver);
-5. exits non-zero when `vrserver` goes away, so `Restart=on-failure` restarts it (at most 10 times in 10 min).
+2. if no `vrserver` runs, waits `FRAME_SHIM_STEAMVR_START_DELAY` seconds, then asks the **running Steam client** to
+   start SteamVR with `steam -ifrunning steam://run/250820` (the same as pressing Play), using the Steam process's
+   display and D-Bus environment;
+3. supervises: it exits non-zero when vrserver or the Steam client goes away, and `Restart=on-failure`
+   (RestartSec=30) launches it again through the next Steam client.
+
+Steam picks SteamVR's runtime (SteamLinuxRuntime_sniper, app 1628350, which Steam installs into any library). Running
+`bin/vrstartup.sh` directly outside Steam fails with `no steam runtime environment set, no sniper SLR found`.
+
+**Never kill a SteamVR you didn't start.** An earlier version stopped a "leftover" vrserver whose DISPLAY differed.
+That killed a Steam-launched SteamVR seconds after it started (`Lost master process … Quitting all`). The service
+now leaves an already-running SteamVR alone and only supervises it.
 
 **Game Mode and Desktop Mode:**
-- With linger on, the user manager outlives a session switch, so SteamVR is not killed together with the session.
-- The script binds to the Steam client of the current session and copies its display environment: gamescope's
-  Xwayland in Game Mode, or kwin's Wayland/Xwayland in Desktop Mode.
-- When that Steam exits, the script stops SteamVR and exits non-zero. systemd restarts it, and it waits for the next
-  session's Steam.
-- A leftover vrserver with a different `DISPLAY` is stopped before starting.
-
-It is enabled through `~/.config/systemd/user/default.target.wants/`. The user manager (`user@UID.service`) runs
-because the session units use `PAMName=login`.
+- SteamVR started through Steam runs in the session's logind scope.
+- When the session ends or switches, SteamVR ends with Steam.
+- The service notices Steam is gone, restarts, waits for the next session's Steam, and launches again.
+- Linger keeps the user unit alive across switches.
 
 **HDMI / gamescope:** the Frame is a streamed (vrlink) HMD, not a DRM connector. SteamVR does not need a DRM lease and
 should not take the display over. The risk is SteamVR's own desktop windows (vrmonitor status window, mirror view,

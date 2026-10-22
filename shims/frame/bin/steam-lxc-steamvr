@@ -1,43 +1,43 @@
 #!/bin/bash
 # Always-on SteamVR (Frame shim). Run as the Steam user by steam-lxc-steamvr.service (systemd user unit).
-# Waits for Steam, starts SteamVR via vrstartup.sh, then stays alive while vrserver runs so systemd can restart it.
+# SteamVR is launched THROUGH the running Steam client (steam -ifrunning steam://run/250820), exactly like pressing
+# Play: Steam picks the runtime (SteamLinuxRuntime_sniper), and SteamVR lives in the session's scope, so it ends with
+# the Game Mode / Desktop Mode session and comes back with the next one. Running vrstartup.sh directly does not work
+# outside Steam ("no steam runtime environment set").
 set -u
 [ -r /etc/default/steam-lxc ] && . /etc/default/steam-lxc
 [ "${FRAME_SHIM_STEAMVR_ALWAYS_ON:-0}" = 1 ] || { echo "FRAME_SHIM_STEAMVR_ALWAYS_ON is not 1; nothing to do"; exit 0; }
-STEAM_ROOT=${FRAME_SHIM_STEAM_ROOT:-$HOME/.local/share/Steam}
-VR=${FRAME_SHIM_STEAMVR_DIR:-$STEAM_ROOT/steamapps/common/SteamVR}
-START="$VR/bin/vrstartup.sh"
 DELAY=${FRAME_SHIM_STEAMVR_START_DELAY:-20}
+APPID=${FRAME_SHIM_STEAMVR_APPID:-250820}
+vr_up() { pgrep -u "$UID" -x vrserver >/dev/null; }
 
-# 1. Steam must be up (steam.pid points at a live process, and steamwebhelper is running).
+# 1. Wait for the Steam client (steam.pid alive and steamwebhelper running).
 until pid=$(cat "$HOME/.steam/steam.pid" 2>/dev/null) && kill -0 "$pid" 2>/dev/null && pgrep -u "$UID" -x steamwebhelper >/dev/null; do
     sleep 5
 done
-[ -x "$START" ] || { echo "SteamVR not installed at $VR (install app 250820)" >&2; exit 1; }
 
-# 2. Inherit the session's display environment from the running Steam client (gamescope's Xwayland in Game Mode).
-for v in DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS; do
-    val=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n "s/^$v=//p" | head -1)
-    [ -n "$val" ] && export "$v=$val"
-done
-sleep "$DELAY"
-
-# 3. Optional: keep SteamVR's desktop windows quiet before start (see README; untested under gamescope).
-if [ "${FRAME_SHIM_STEAMVR_QUIET:-0}" = 1 ] && ! pgrep -u "$UID" -x vrserver >/dev/null; then
-    /usr/local/lib/steam-lxc/frame/vrsettings-merge quiet || true
+# 2. Launch through Steam if SteamVR is not already running (never kill a SteamVR somebody else started).
+if ! vr_up; then
+    sleep "$DELAY"
+    kill -0 "$pid" 2>/dev/null || exit 1
+    vr_up || {
+        # The Steam client's own session environment (display, D-Bus) for the steam:// forwarder.
+        envs=()
+        for v in DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS; do
+            val=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n "s/^$v=//p" | head -1)
+            [ -n "$val" ] && envs+=("$v=$val")
+        done
+        if [ "${FRAME_SHIM_STEAMVR_QUIET:-0}" = 1 ]; then /usr/local/lib/steam-lxc/frame/vrsettings-merge quiet || true; fi
+        echo "launching SteamVR via Steam (steam://run/$APPID)"
+        env "${envs[@]}" timeout 30 steam -ifrunning "steam://run/$APPID" >/dev/null 2>&1
+        for _ in $(seq 24); do vr_up && break; sleep 5; done
+        vr_up || { echo "SteamVR did not start within 2 minutes" >&2; exit 1; }
+    }
 fi
+echo "SteamVR running (vrserver $(pgrep -u "$UID" -x vrserver | head -1)); supervising"
 
-stop_vr() { pkill -u "$UID" -x 'vrmonitor|vrserver|vrcompositor|vrdashboard|vrwebhelper|vrstartup' 2>/dev/null; sleep 3; }
-# A SteamVR left over from a previous session (another Steam/display) is stopped so it restarts bound to this one.
-if pgrep -u "$UID" -x vrserver >/dev/null && ! tr '\0' '\n' < "/proc/$(pgrep -u "$UID" -x vrserver | head -1)/environ" 2>/dev/null \
-        | grep -qx "DISPLAY=${DISPLAY:-}"; then
-    stop_vr
-fi
-pgrep -u "$UID" -x vrserver >/dev/null || "$START" >/dev/null 2>&1 &
-# 4. Supervise. The user manager lingers across Game Mode <-> Desktop Mode switches, so SteamVR is not killed with the
-# session: when the Steam client we bound to exits, stop SteamVR and exit non-zero; systemd restarts us, we wait for the
-# next session's Steam and start SteamVR on its display. Also exit non-zero if vrserver dies (Restart=on-failure).
-sleep 30
-while kill -0 "$pid" 2>/dev/null && pgrep -u "$UID" -x vrserver >/dev/null; do sleep 5; done
-if kill -0 "$pid" 2>/dev/null; then echo "vrserver exited" >&2; else echo "Steam exited (session switch?); stopping SteamVR" >&2; stop_vr; fi
+# 3. Supervise: exit non-zero when vrserver or the Steam client goes away; Restart=on-failure relaunches through the
+# (next) Steam client. SteamVR itself is not killed here: it belongs to Steam's session and ends with it.
+while kill -0 "$pid" 2>/dev/null && vr_up; do sleep 5; done
+if kill -0 "$pid" 2>/dev/null; then echo "vrserver exited" >&2; else echo "Steam exited (session ended or switched)" >&2; fi
 exit 1

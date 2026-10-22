@@ -15,7 +15,8 @@ ExecCondition=/bin/sh -c '. /etc/default/steam-lxc 2>/dev/null; [ "$FRAME_SHIM_S
 ExecStartPre=-/usr/local/lib/steam-lxc/frame/vrsettings-merge lastknown
 ExecStart=/usr/local/lib/steam-lxc/frame/steam-lxc-steamvr
 Restart=on-failure
-RestartSec=15
+# Long enough that a failing start does not flash SteamVR windows on the screen in quick succession.
+RestartSec=30
 
 [Install]
 WantedBy=default.target
