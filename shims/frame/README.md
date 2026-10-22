@@ -26,7 +26,15 @@ unless the toggle is 1. The script:
 2. copies `DISPLAY`/`WAYLAND_DISPLAY`/`XDG_RUNTIME_DIR`/D-Bus from the Steam process;
 3. waits `FRAME_SHIM_STEAMVR_START_DELAY` seconds;
 4. runs `steamapps/common/SteamVR/bin/vrstartup.sh` (verified path; it starts vrmonitor, which starts vrserver);
-5. exits non-zero when `vrserver` goes away, so `Restart=on-failure` restarts it (at most 5 times in 10 min).
+5. exits non-zero when `vrserver` goes away, so `Restart=on-failure` restarts it (at most 10 times in 10 min).
+
+**Game Mode and Desktop Mode:**
+- With linger on, the user manager outlives a session switch, so SteamVR is not killed together with the session.
+- The script binds to the Steam client of the current session and copies its display environment: gamescope's
+  Xwayland in Game Mode, or kwin's Wayland/Xwayland in Desktop Mode.
+- When that Steam exits, the script stops SteamVR and exits non-zero. systemd restarts it, and it waits for the next
+  session's Steam.
+- A leftover vrserver with a different `DISPLAY` is stopped before starting.
 
 It is enabled through `~/.config/systemd/user/default.target.wants/`. The user manager (`user@UID.service`) runs
 because the session units use `PAMName=login`.
