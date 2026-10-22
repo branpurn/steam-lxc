@@ -1,10 +1,12 @@
 [Unit]
-Description=steam-lxc: x11vnc on the gamescope Xwayland display (:0)
+Description=steam-lxc: x11vnc on the gamescope Xwayland display (:0; opt-in STEAM_LXC_VNC=1)
 After=steamos-session.service
 BindsTo=steamos-session.service
 [Service]
 User=steam
 Environment=DISPLAY=:0
+EnvironmentFile=-/etc/default/steam-lxc
+ExecCondition=/bin/sh -c '[ "$${STEAM_LXC_VNC:-0}" = 1 ]'
 ExecStart=/usr/local/bin/steam-lxc-vnc
 Restart=always
 RestartSec=5

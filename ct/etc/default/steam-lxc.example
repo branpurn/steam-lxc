@@ -75,3 +75,11 @@ HDMI_WATCHDOG_DPMS_OFF_SECONDS=2
 HDMI_WATCHDOG_DPMS_TRIES=2           # DPMS attempts before a session restart is considered
 HDMI_WATCHDOG_ALLOW_SESSION_RESTART=0
 HDMI_WATCHDOG_INTERVAL=10            # link-status poll interval
+
+# VNC into Game Mode (opt-in). 1 = x11vnc mirrors the Steam UI (Big Picture window on gamescope's Xwayland :0) with
+# keyboard/mouse input; no modeset. Desktop Mode is not covered (see NOTES.md). Password: plaintext file, mode 600,
+# generated on first start if missing (VNC uses 8 characters). Empty VNC_LISTEN = all interfaces.
+STEAM_LXC_VNC=0
+VNC_PORT=5900
+VNC_LISTEN=
+VNC_PASSWORD_FILE=

@@ -1,11 +1,25 @@
 #!/bin/bash
-# VNC view/control of the Game Mode session. gamescope's Xwayland is rootless, so GetImage on the root
-# window fails (X_GetImage BadMatch); attach x11vnc to the Steam Big Picture window instead (-id).
-# Password: ~/.vnc/passwd (x11vnc -storepasswd; VNC only uses the first 8 characters). Restrict 5900 with a firewall.
+# VNC view/control of the Game Mode session (opt-in: STEAM_LXC_VNC=1 in /etc/default/steam-lxc).
+# gamescope's Xwayland is rootless, so GetImage on the root window fails (X_GetImage BadMatch); attach x11vnc to the
+# Steam Big Picture window instead (-id). gamescope draws that window full-screen on the panel, so this mirrors the
+# Steam UI on the display without touching the DRM output (no modeset). Games run on a 2nd Xwayland and are not captured.
+# Password: plaintext in $VNC_PASSWORD_FILE (default ~/.vnc/password, mode 600). If neither it nor ~/.vnc/passwd exists,
+# a random 8-character password is generated into it (VNC only uses the first 8 characters). Never put it on argv.
+set -u
 export DISPLAY=${DISPLAY:-:0}
+PORT=${VNC_PORT:-5900}
+LISTEN=${VNC_LISTEN:-}          # empty = all interfaces; restrict 5900 with a firewall
+PWF=${VNC_PASSWORD_FILE:-$HOME/.vnc/password}
+umask 077
+install -d -m 700 "$HOME/.vnc"
+if [ ! -s "$PWF" ] && [ ! -s "$HOME/.vnc/passwd" ]; then
+  tr -dc 'A-Za-z0-9' </dev/urandom | head -c8 >"$PWF"; echo >>"$PWF"
+fi
+if [ -s "$PWF" ]; then auth=(-passwdfile "$PWF"); else auth=(-rfbauth "$HOME/.vnc/passwd"); fi
 for i in $(seq 120); do
   wid=$(xwininfo -root -tree 2>/dev/null | awk '/"Steam Big Picture Mode"/{print $1; exit}')
   [ -n "$wid" ] && break; sleep 2
 done
-[ -n "$wid" ] || { echo "steam-lxc-vnc: Steam Big Picture window not found" >&2; exit 1; }
-exec x11vnc -display "$DISPLAY" -id "$wid" -rfbport 5900 -rfbauth "$HOME/.vnc/passwd" -forever -shared -noxdamage -noxrecord -quiet
+[ -n "${wid:-}" ] || { echo "steam-lxc-vnc: Steam Big Picture window not found" >&2; exit 1; }
+exec x11vnc -display "$DISPLAY" -id "$wid" -rfbport "$PORT" ${LISTEN:+-listen "$LISTEN"} "${auth[@]}" \
+  -forever -shared -noxdamage -noxrecord -quiet

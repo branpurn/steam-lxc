@@ -54,7 +54,7 @@ for site-specific hooks.
   - session switching (`/usr/libexec/os-session-select`, `steam-lxc-switch@.service`, a `steamosctl` shim);
   - `session-cleanup.sh`;
   - gamescope overrides (`/etc/gamescope-session-plus/sessions.d/steam`, `/etc/gamescope/scripts/*.lua`);
-  - display keep-awake, VNC for Game Mode, the Ctrl+Shift+Esc game killer, and the device ACL units;
+  - display keep-awake, opt-in VNC for Game Mode (`STEAM_LXC_VNC=1`), the Ctrl+Shift+Esc game killer, and the device ACL units;
   - the opt-in HDMI link watchdog (`steam-lxc-hdmi-watchdog`, see below).
 
 ## Quick start
@@ -74,7 +74,7 @@ pct exec <ctid> -- bash /root/ct/install/50-session.sh
 # edit /etc/default/steam-lxc in the CT, then:
 pct reboot <ctid>
 ```
-Then sign in to Steam on the display or over VNC (`<ct-ip>:5900`; the VNC password is the first 8 characters of the session password).
+Then sign in to Steam on the display or over VNC (`<ct-ip>:5900`, after setting `STEAM_LXC_VNC=1` in `/etc/default/steam-lxc`; the password is the first 8 characters of the session password, or the generated one in `~/.vnc/password`). Apache Guacamole: protocol VNC, port 5900, password only (no username), color depth 24, cursor remote.
 
 ## Only one GPU container at a time
 The hookscript refuses `pre-start` while another GPU CT is running. By default every CT whose config passes `/dev/nvidia0`
