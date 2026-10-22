@@ -17,5 +17,6 @@ bash src/gamescope-display-wake/build.sh
 # setcap on gamescope is not possible here: PVE drops CAP_SETFCAP inside the CT (verified). gamescope runs without realtime priority.
 systemctl daemon-reload
 systemctl enable host-udev-db.service steam-lxc-dev-acl.service steam-lxc-dev-acl.path steam-lxc-dev-acl.timer \
-  steamos-session.service steam-lxc-vnc.service steam-lxc-display-keepawake.service steam-lxc-game-killer.service
+  steamos-session.service steam-lxc-vnc.service steam-lxc-display-keepawake.service steam-lxc-game-killer.service \
+  steam-lxc-hdmi-watchdog.service
 loginctl enable-linger "$U" || true

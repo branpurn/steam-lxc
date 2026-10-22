@@ -1,0 +1,9 @@
+[Unit]
+Description=steam-lxc: forward HDMI link-training failures from the host kernel log to the GPU CT (opt-in)
+After=pve-guests.service
+[Service]
+ExecStart=/usr/local/sbin/steam-lxc-hdmi-watchdog-host
+Restart=always
+RestartSec=10
+[Install]
+WantedBy=multi-user.target

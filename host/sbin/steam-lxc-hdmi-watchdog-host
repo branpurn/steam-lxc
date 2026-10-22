@@ -1,0 +1,27 @@
+#!/bin/bash
+# Host side of the steam-lxc HDMI link watchdog. The CT cannot read the host kernel log, where the NVIDIA driver
+# reports a failed HDMI link ("nvidia-modeset: ... HDMI FRL link training failed."). This follows the kernel log and,
+# on each match, tells the running GPU CT(s): pct exec <ct> -- steam-lxc-hdmi-watchdog event <reason>.
+# The CT applies its own opt-in, retry limit and backoff (STEAM_LXC_HDMI_WATCHDOG=1 in its /etc/default/steam-lxc).
+# Config (/etc/steam-lxc/host.conf): HDMI_WATCHDOG_CTS (default: GPU_CTS or every CT passing /dev/nvidia0),
+# HDMI_WATCHDOG_PATTERN (extended regex).
+[ -r /etc/steam-lxc/host.conf ] && . /etc/steam-lxc/host.conf
+PATTERN=${HDMI_WATCHDOG_PATTERN:-HDMI FRL link training failed|link training failed}
+PCT=${WD_PCT:-pct}
+LOGGER=${WD_LOGGER:-logger}
+SOURCE=${WD_SOURCE:-journalctl -k -f -n 0 -o cat}
+cts() {
+  local l=${HDMI_WATCHDOG_CTS:-${GPU_CTS:-}}
+  [ -n "$l" ] || l=$(grep -l 'dev/nvidia0' /etc/pve/lxc/*.conf 2>/dev/null | xargs -rn1 basename | sed 's/\.conf$//')
+  echo "$l"
+}
+$SOURCE | while IFS= read -r line; do
+  [[ $line =~ $PATTERN ]] || continue
+  for ct in $(cts); do
+    $PCT status "$ct" 2>/dev/null | grep -q running || continue
+    $LOGGER -t steam-lxc-intended "$(date -Is) hdmi-watchdog-host: '$line' -> event to CT $ct"
+    # Background: the CT sleeps for its settle time; keep reading the log meanwhile.
+    $PCT exec "$ct" -- /usr/local/sbin/steam-lxc-hdmi-watchdog event "host kernel: link training failed" &
+  done
+done
+wait

@@ -57,3 +57,21 @@ FRAME_SHIM_RTKIT=0
 FRAME_SHIM_DONGLE_NM=0
 FRAME_DONGLE_IFACE=wlframe0
 # SteamVR yields to non-VR games (+ 1080p flat stream): see shims/frame/steam-lxc.frame-yield.example
+
+# HDMI link watchdog (opt-in). After a modeset (session start/stop, mode change) an HDMI 2.1 FRL link can fail to train,
+# which shows as artifacts or a black screen. 1 = when a failed link is seen, retry a clean modeset: first a DPMS
+# off/on cycle via gamescope, then (only if allowed) one session restart. Retries are capped and backed off.
+# Signals: DRM link-status polling on HDMI_WATCHDOG_CONNECTORS, and/or events from the optional host helper
+# (host/sbin/steam-lxc-hdmi-watchdog-host, which watches the host kernel log). Every action is logged with
+# tag steam-lxc-intended. Inspect with: steam-lxc-hdmi-watchdog status
+STEAM_LXC_HDMI_WATCHDOG=0
+HDMI_WATCHDOG_CONNECTORS=
+HDMI_WATCHDOG_MAX=3                  # attempts per window, then give up
+HDMI_WATCHDOG_WINDOW=600             # seconds
+HDMI_WATCHDOG_BACKOFF=15             # seconds, doubled after each attempt
+HDMI_WATCHDOG_SETTLE=5               # wait before acting (let an in-flight modeset finish)
+HDMI_WATCHDOG_VERIFY=15              # wait after acting for a new failure report
+HDMI_WATCHDOG_DPMS_OFF_SECONDS=2
+HDMI_WATCHDOG_DPMS_TRIES=2           # DPMS attempts before a session restart is considered
+HDMI_WATCHDOG_ALLOW_SESSION_RESTART=0
+HDMI_WATCHDOG_INTERVAL=10            # link-status poll interval
