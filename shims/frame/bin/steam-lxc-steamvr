@@ -7,7 +7,7 @@
 #  - relaunch it when vrserver dies, after reaping orphaned SteamVR helpers;
 #  - follow the Steam client across Game Mode / Desktop Mode session switches;
 #  - with FRAME_SHIM_STEAMVR_YIELD=1: confirmed VR game -> SteamVR now; any other game (flat/unknown) -> stop SteamVR,
-#    resume after it exits; while such a game streams to the Frame, gamescope output = FRAME_SHIM_FLAT_STREAM_RES.
+#    resume after it exits; optional (off by default) gamescope output mode while such a game streams: FRAME_SHIM_FLAT_STREAM_RES.
 # Never kills a SteamVR it did not decide to stop, never pkill/killall; SIGKILL of vrserver only with
 # FRAME_SHIM_STEAMVR_YIELD_SIGKILL=1. Yield stop order: vrmonitor, then vrserver (exact PIDs), see stop_steamvr.
 set -u

@@ -1,0 +1,23 @@
+#!/bin/bash
+# Frame shim: READ-ONLY stream diagnostics (top-left crop hunting). Changes nothing. Run as root in the CT or as the
+# Steam user, ideally while a Remote Play stream shows the problem.
+U=${STEAM_LXC_USER:-$( . /etc/default/steam-lxc 2>/dev/null; echo "${STEAM_LXC_USER:-steam}")}
+run() { if [ "$(id -un)" = "$U" ]; then "$@"; else runuser -u "$U" -- "$@"; fi; }
+R=/run/user/$(id -u "$U"); H=$(getent passwd "$U" | cut -d: -f6)
+echo "== $(date -Is)"
+echo "== gamescope:"; pgrep -u "$U" -x gamescope -a 2>/dev/null | cut -c1-200
+for d in :0 :1 :2; do
+    run env LC_ALL=C DISPLAY=$d xwininfo -root >/dev/null 2>&1 || continue
+    echo "== Xwayland $d root: $(run env LC_ALL=C DISPLAY=$d xwininfo -root | awk '/Width:|Height:/{printf "%s ", $2}')"
+    run env DISPLAY=$d xprop -root GAMESCOPE_XWAYLAND_MODE_CONTROL GAMESCOPE_FOCUSED_APP GAMESCOPE_FOCUSABLE_APPS \
+        GAMESCOPE_DISPLAY_MODE_NUDGE 2>/dev/null | sed 's/^/   /'
+    echo "   top-level windows >= 640 wide:"
+    run env LC_ALL=C DISPLAY=$d xwininfo -root -children 2>/dev/null | grep -E '"[^"]*".* [0-9]{3,5}x[0-9]{3,5}\+' \
+        | awk '{ if (match($0, / [0-9]+x[0-9]+\+/)) { split(substr($0, RSTART+1, RLENGTH-2), a, "x"); if (a[1] >= 640) print "   " $0 } }'
+done
+echo "== modes.cfg: [$(cat "$H/.config/gamescope/modes.cfg" 2>/dev/null)]"
+echo "== shim streamres state:"; ls "$R/steam-lxc-frame/" 2>/dev/null | sed 's/^/   /'
+echo "== journal (last 15 min):"
+journalctl --since -15min -o short-iso 2>/dev/null | grep -E 'stream format changed|Capture (method|resolution)|setting capture size|selecting mode|Updating mode for xwayland|streamres:' | tail -25 | cut -c1-220
+L=$H/.local/share/Steam/logs/streaming_log.txt
+[ -r "$L" ] && { echo "== streaming_log.txt (tail):"; grep -aE 'Capture|capture size|Starting .* stream|resolution' "$L" | tail -10; }
