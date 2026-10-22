@@ -1,0 +1,35 @@
+#!/bin/bash
+# Always-on SteamVR (Frame shim). Run as the Steam user by steam-lxc-steamvr.service (systemd user unit).
+# Waits for Steam, starts SteamVR via vrstartup.sh, then stays alive while vrserver runs so systemd can restart it.
+set -u
+[ -r /etc/default/steam-lxc ] && . /etc/default/steam-lxc
+[ "${FRAME_SHIM_STEAMVR_ALWAYS_ON:-0}" = 1 ] || { echo "FRAME_SHIM_STEAMVR_ALWAYS_ON is not 1; nothing to do"; exit 0; }
+STEAM_ROOT=${FRAME_SHIM_STEAM_ROOT:-$HOME/.local/share/Steam}
+VR=${FRAME_SHIM_STEAMVR_DIR:-$STEAM_ROOT/steamapps/common/SteamVR}
+START="$VR/bin/vrstartup.sh"
+DELAY=${FRAME_SHIM_STEAMVR_START_DELAY:-20}
+
+# 1. Steam must be up (steam.pid points at a live process, and steamwebhelper is running).
+until pid=$(cat "$HOME/.steam/steam.pid" 2>/dev/null) && kill -0 "$pid" 2>/dev/null && pgrep -u "$UID" -x steamwebhelper >/dev/null; do
+    sleep 5
+done
+[ -x "$START" ] || { echo "SteamVR not installed at $VR (install app 250820)" >&2; exit 1; }
+
+# 2. Inherit the session's display environment from the running Steam client (gamescope's Xwayland in Game Mode).
+for v in DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS; do
+    val=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n "s/^$v=//p" | head -1)
+    [ -n "$val" ] && export "$v=$val"
+done
+sleep "$DELAY"
+
+# 3. Optional: keep SteamVR's desktop windows quiet before start (see README; untested under gamescope).
+if [ "${FRAME_SHIM_STEAMVR_QUIET:-0}" = 1 ] && ! pgrep -u "$UID" -x vrserver >/dev/null; then
+    /usr/local/lib/steam-lxc/frame/vrsettings-merge quiet || true
+fi
+
+pgrep -u "$UID" -x vrserver >/dev/null || "$START" >/dev/null 2>&1 &
+# 4. Supervise: exit non-zero when vrserver goes away so Restart=on-failure brings it back.
+sleep 30
+while pgrep -u "$UID" -x vrserver >/dev/null; do sleep 10; done
+echo "vrserver exited" >&2
+exit 1

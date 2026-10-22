@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""Frame shim: idempotent merges into steamvr.vrsettings. Run as the Steam user while SteamVR is NOT running.
+  vrsettings-merge lastknown   merge LastKnown from FRAME_LASTKNOWN_* in /etc/default/steam-lxc (skips if unset)
+  vrsettings-merge quiet       set the optional 'quiet desktop' keys (FRAME_SHIM_STEAMVR_QUIET)
+A timestamped backup is written before any change. Values are never printed."""
+import json, os, shlex, shutil, subprocess, sys, time
+
+def conf():
+    out = {}
+    try:
+        for line in open("/etc/default/steam-lxc"):
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                try: v = " ".join(shlex.split(v))
+                except ValueError: pass
+                out[k.strip()] = v
+    except FileNotFoundError: pass
+    return out
+
+C = conf()
+root = C.get("FRAME_SHIM_STEAM_ROOT") or os.path.expanduser("~/.local/share/Steam")
+path = os.path.join(root, "config", "steamvr.vrsettings")
+mode = sys.argv[1] if len(sys.argv) > 1 else ""
+
+if mode == "lastknown":
+    if C.get("FRAME_SHIM_LASTKNOWN_SEED", "0") != "1":
+        sys.exit("FRAME_SHIM_LASTKNOWN_SEED is not 1; skipping")
+    keys = {"ActualHMDDriver": "FRAME_LASTKNOWN_DRIVER", "HMDManufacturer": "FRAME_LASTKNOWN_MANUFACTURER",
+            "HMDModel": "FRAME_LASTKNOWN_MODEL", "HMDSerialNumber": "FRAME_LASTKNOWN_SERIAL",
+            "RemoteClientID": "FRAME_LASTKNOWN_CLIENT_ID"}
+    want = {"LastKnown": {k: C.get(v, "") for k, v in keys.items()}}
+    if not want["LastKnown"]["ActualHMDDriver"]: want["LastKnown"]["ActualHMDDriver"] = "vrlink"
+    if not (want["LastKnown"]["HMDSerialNumber"] and want["LastKnown"]["RemoteClientID"]):
+        print("FRAME_LASTKNOWN_SERIAL / FRAME_LASTKNOWN_CLIENT_ID unset; skipping"); sys.exit(0)
+    want["LastKnown"] = {k: v for k, v in want["LastKnown"].items() if v}
+elif mode == "quiet":
+    # Best-effort keys that keep SteamVR's own desktop windows from opening; see README (untested under gamescope).
+    want = {"steamvr": {"showMirrorView": False, "enableHomeApp": False}}
+else:
+    sys.exit(__doc__)
+
+if subprocess.run(["pgrep", "-u", str(os.getuid()), "-x", "vrserver|vrmonitor|vrcompositor"],
+                  stdout=subprocess.DEVNULL).returncode == 0:
+    sys.exit("SteamVR is running; stop it first (settings are rewritten by vrserver on exit)")
+
+data = {}
+if os.path.exists(path):
+    with open(path) as f: data = json.load(f)
+changed = False
+for sect, kv in want.items():
+    s = data.setdefault(sect, {})
+    for k, v in kv.items():
+        if s.get(k) != v: s[k] = v; changed = True
+if not changed:
+    print(f"{mode}: already up to date"); sys.exit(0)
+os.makedirs(os.path.dirname(path), exist_ok=True)
+had = os.path.exists(path)
+if had:
+    shutil.copy2(path, f"{path}.bak-frame-shim-{time.strftime('%Y%m%d%H%M%S')}")
+tmp = path + ".tmp"
+with open(tmp, "w") as f: json.dump(data, f, indent=3); f.write("\n")
+os.replace(tmp, path)
+print(f"{mode}: merged into {path}" + (" (backup written)" if had else ""))

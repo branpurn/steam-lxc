@@ -76,3 +76,6 @@ Then sign in to Steam on the display or over VNC (`<ct-ip>:5900`; the VNC passwo
 The hookscript refuses `pre-start` while another GPU CT is running. By default every CT whose config passes `/dev/nvidia0`
 counts as a GPU CT; override with `GPU_CTS=` in `/etc/steam-lxc/host.conf`. To protect another existing CT, add
 `/usr/local/sbin/gpu-exclusive.sh "$1" || exit 1` to its own hookscript's pre-start.
+
+## Optional shims
+- [`shims/frame/`](shims/frame/README.md): Steam Frame helpers (always-on SteamVR, headset record seeding, rtkit, Frame Wireless Adapter), pending better Steam Frame support in SteamOS from Valve. All off by default.

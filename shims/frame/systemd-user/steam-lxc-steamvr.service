@@ -1,0 +1,19 @@
+[Unit]
+Description=steam-lxc Frame shim: always-on SteamVR (pending better Steam Frame support in SteamOS)
+# Started by the Steam user's systemd --user manager (the Game/Desktop session is a logind session).
+After=default.target
+
+[Service]
+Type=simple
+# Disabled unless FRAME_SHIM_STEAMVR_ALWAYS_ON=1 in /etc/default/steam-lxc
+ExecCondition=/bin/sh -c '. /etc/default/steam-lxc 2>/dev/null; [ "$FRAME_SHIM_STEAMVR_ALWAYS_ON" = 1 ]'
+ExecStartPre=-/usr/local/lib/steam-lxc/frame/vrsettings-merge lastknown
+ExecStart=/usr/local/lib/steam-lxc/frame/steam-lxc-steamvr
+Restart=on-failure
+RestartSec=15
+# Never let a crash loop hammer the GPU: give up after 5 failures in 10 minutes.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Install]
+WantedBy=default.target
