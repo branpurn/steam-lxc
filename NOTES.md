@@ -86,3 +86,33 @@
   and `zero modifiers for DRM format AB48/XB48` (16-bit formats the NVIDIA driver doesn't export). No NV12/import/commit failures were logged.
   The green-screen-on-NVIDIA issue concerns Remote Play capture (NV12 over PipeWire), not the local panel.
 - **Steam FPS cap:** no frame-limit setting is stored in Steam's config. The default is unlimited, but the per-game QAM setting is not checked yet.
+
+## NVIDIA display tweaks: composite_force=1, adaptive_sync=0, hdr_enabled=0 (enforced)
+- **Why `gamescopectl` seemed to do nothing:** it connects to `$GAMESCOPE_WAYLAND_DISPLAY`, not `WAYLAND_DISPLAY`. With
+  only `XDG_RUNTIME_DIR` set, nothing reaches gamescope. Even when it does connect, command output and convar values go
+  to gamescope's own log, not the terminal. Also, the protocol always sends a value, so `gamescopectl composite_force`
+  with no value **sets it to false**; you can't read a convar that way.
+  Use `/usr/local/bin/steam-lxc-gamescopectl` (correct env, runs as the session user) and read the session journal.
+- **Fix:** `/etc/gamescope/scripts/60-steam-lxc-nvidia-tweaks.lua` sets the three convars at startup and re-checks them
+  after every painted frame (`OnPostPaint` hook). This is stronger than the SteamOS VM's 60 s gamescopectl loop.
+  It logs every correction and a status line (`[steam-lxc-tweaks] status: ...`) at about 5 s and then about every 10 min.
+- **Verified after `pct reboot`:** one gamescope; `selecting mode 3840x2160@120Hz`; the tweak script logged
+  `startup: composite_force false -> true` and then Steam flipping `hdr_enabled true -> false` (twice) and `composite_force false -> true`
+  at runtime. Setting `adaptive_sync 1` by hand was reverted at once (`runtime: adaptive_sync true -> false`).
+  Status was `adaptive_sync=false composite_force=true hdr_enabled=false`; `GAMESCOPE_DISPLAY_SUPPORTS_HDR=0`,
+  `GAMESCOPE_VRR_FEEDBACK=0`; host `dmesg | grep -c hdr=1` returned 0; HDMI DPMS was On; Steam was still signed in.
+
+### Differences from the working SteamOS VM (candidates if artifacting persists)
+| Item | SteamOS VM (OK) | CT 601 |
+|---|---|---|
+| NVIDIA driver | nvidia-open 615.78.08 (DKMS, guest kernel) | host open kernel module 595.104.02 + matching .run userland |
+| Kernel | 6.18 linux-neptune | PVE 7.0 (host) |
+| gamescope | Valve SteamOS 3.8 build | Arch `extra/gamescope` 3.16.31 |
+| Explicit sync | not configured | "Using explicit sync when available" (`GAMESCOPE_DISABLE_EXPLICIT_SYNC` unset) |
+| Connector | HDMI-A-1 (VM numbering) | HDMI-A-2, 3840x2160@120 from the EDID list |
+| HDR / VRR / composite | off / off / forced | same (enforced) |
+| nvidia-drm | modeset=1 fbdev=1 | modeset=1 fbdev=1 (host) |
+| Modifiers | — | AB48/XB48 report zero modifiers (16-bit formats only) |
+Next things to try, in order: `GAMESCOPE_DISABLE_EXPLICIT_SYNC=1` (session-plus already ships the handling script);
+updating the host driver to 615.78 (this needs a host kernel-module change and a re-run of `20-nvidia-hostmatched.sh`
+in both CTs); Valve's gamescope build from jupiter-3.9; a different refresh rate (60 or 144 Hz) to rule out the HDMI FRL link.

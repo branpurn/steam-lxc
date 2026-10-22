@@ -27,6 +27,8 @@ CT: Arch Linux (archlinux-base 2026-04-20 template, updated 2026-10-21), gamesco
 | gamescope `CAP_SYS_NICE` (`setcap`) | fails: CAP_SETFCAP is dropped inside the CT | **verified** (not possible) |
 | HDR | permanently disabled (gamescope script hdr.supported=false + session env); SUPPORTS_HDR=0 | **verified** off |
 | Output mode | 3840x2160@120 on HDMI (`-W/-H` + `-r` via wrapper) | **verified** |
-| VRR | — | unverified |
+| VRR (adaptive_sync) | forced off by gamescope script; VRR feedback 0 | **verified** off |
+| composite_force | forced on by gamescope script (Steam flips it; reverted) | **verified** |
+| HDMI artifacting on NVIDIA | persists per user report with HDR off; candidates in NOTES.md | open |
 | Desktop mode ("Switch to Desktop") | not installed | not implemented |
 | Mutual exclusion with the other GPU CT | `pct start` of the other CT is refused while this one runs | **verified** |

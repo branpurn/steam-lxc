@@ -1,0 +1,9 @@
+#!/bin/bash
+# gamescopectl against the Game Mode gamescope. gamescopectl connects to $GAMESCOPE_WAYLAND_DISPLAY (not
+# WAYLAND_DISPLAY); without it, nothing reaches gamescope and nothing is printed. Command output and convar values are
+# written to the gamescope log (journalctl -u steamos-session), not to this terminal.
+# WARNING: `gamescopectl <convar>` with no value sets it to false/0 (the protocol always sends a value).
+u=${STEAM_LXC_USER:-steam}; uid=$(id -u "$u")
+env_=(XDG_RUNTIME_DIR=/run/user/$uid GAMESCOPE_WAYLAND_DISPLAY=${GAMESCOPE_WAYLAND_DISPLAY:-gamescope-0})
+if [ "$(id -u)" = 0 ]; then exec runuser -u "$u" -- env "${env_[@]}" gamescopectl "$@"; fi
+exec env "${env_[@]}" gamescopectl "$@"
