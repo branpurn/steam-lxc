@@ -1,5 +1,5 @@
 #!/bin/bash
-# steam-lxc Desktop Mode: KDE Plasma (Wayland) on the GPU's HDMI panel, as the session user.
+# steam-lxc Desktop Mode: KDE Plasma (Wayland) on the GPU display, as the session user.
 # Plasma 6.8 on Arch has no X11 session any more (kwin-x11 was dropped), so this is Wayland.
 export XDG_RUNTIME_DIR=/run/user/$(id -u) XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE XDG_SESSION_DESKTOP=KDE
 export KWIN_DRM_DEVICES=/dev/dri/card1 LANG=${LANG:-en_US.UTF-8}

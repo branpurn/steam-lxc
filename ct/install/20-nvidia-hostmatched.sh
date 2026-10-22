@@ -2,7 +2,9 @@
 # Inside the CT as root, with NVIDIA-Linux-x86_64-$V.run pushed to /root (copy it from the host).
 # Userland must equal the host kernel module version exactly: cat /proc/driver/nvidia/version on the host.
 set -e
-V=${NVIDIA_VERSION:-595.104.02}
+# Default: the host kernel module version as seen through /proc (shared kernel).
+V=${NVIDIA_VERSION:-$(awk 'NR==1{for(i=1;i<=NF;i++) if($i ~ /^[0-9]+\.[0-9]+(\.[0-9]+)?$/){print $i; exit}}' /proc/driver/nvidia/version)}
+[ -n "$V" ] || { echo "cannot determine host NVIDIA version; set NVIDIA_VERSION" >&2; exit 1; }
 pacman -Rdd --noconfirm nvidia-utils lib32-nvidia-utils
 sh /root/NVIDIA-Linux-x86_64-$V.run --silent --no-kernel-module --no-x-check --no-nouveau-check --no-questions --install-compat32-libs --no-install-libglvnd --no-systemd --no-check-for-alternate-installs --skip-depmod > /root/nv-install.out 2>&1 || { tail -30 /var/log/nvidia-installer.log; exit 1; }
 # placeholder package so pacman deps (vulkan-driver etc.) resolve to the .run userland

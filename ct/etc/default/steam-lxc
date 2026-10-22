@@ -1,2 +1,0 @@
-# Session user (must own the shared Steam library UID; 1000 by default)
-STEAM_LXC_USER=steam

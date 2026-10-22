@@ -1,22 +1,20 @@
 # steam-lxc overrides, sourced (set -a) AFTER /usr/share/gamescope-session-plus/sessions.d/steam, so they win and
-# survive package updates. See NOTES.md.
-# Prefer the HDMI panel, then any connector.
-OUTPUT_CONNECTOR="HDMI-A-2,*"
-
-# --- HDR permanently off (HDR caused artifacting with this panel + RTX 4080) ---
-# gamescope-session-plus only adds --hdr-enabled --hdr-itm-enable when ENABLE_GAMESCOPE_HDR == 1.
-ENABLE_GAMESCOPE_HDR=0
-# Steam only offers/enables HDR in Game Mode when gamescope advertises it.
-STEAM_GAMESCOPE_HDR_SUPPORTED=0
-# Don't let games/DXVK/Vulkan WSI ask for HDR swapchains.
-ENABLE_HDR_WSI=0
-DXVK_HDR=0
-unset GAMESCOPE_HDR_NITS
-
-# --- Native 4K @ 120 Hz on the panel ---
-# -W/-H select the preferred output mode in the DRM backend; the refresh comes from -r (preferred_refresh),
-# which gamescope-session-plus has no variable for, so a wrapper adds it.
-SCREEN_WIDTH=3840
-SCREEN_HEIGHT=2160
-GAMESCOPE_OUTPUT_REFRESH=120
+# survive package updates. Values come from /etc/default/steam-lxc (see steam-lxc.example).
+[ -r /etc/default/steam-lxc ] && . /etc/default/steam-lxc
+OUTPUT_CONNECTOR="${GAME_OUTPUT_CONNECTOR:-*}"
+if [ -n "${GAME_OUTPUT_WIDTH:-}" ] && [ -n "${GAME_OUTPUT_HEIGHT:-}" ]; then
+  # -W/-H pick the preferred DRM mode; the refresh comes from -r, which session-plus has no variable for,
+  # so the steam-lxc-gamescope wrapper adds it.
+  SCREEN_WIDTH=$GAME_OUTPUT_WIDTH
+  SCREEN_HEIGHT=$GAME_OUTPUT_HEIGHT
+  GAMESCOPE_OUTPUT_REFRESH="${GAME_OUTPUT_REFRESH:-}"
+fi
 GAMESCOPE_BIN=/usr/local/bin/steam-lxc-gamescope
+if [ "${STEAM_LXC_DISABLE_HDR:-0}" = 1 ]; then
+  # session-plus only adds --hdr-enabled when ENABLE_GAMESCOPE_HDR == 1; Steam only offers HDR when advertised.
+  ENABLE_GAMESCOPE_HDR=0
+  STEAM_GAMESCOPE_HDR_SUPPORTED=0
+  ENABLE_HDR_WSI=0
+  DXVK_HDR=0
+  unset GAMESCOPE_HDR_NITS
+fi

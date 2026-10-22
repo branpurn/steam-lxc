@@ -1,0 +1,9 @@
+[Unit]
+Description=steam-lxc: Ctrl+Shift+Esc force-quits the running game (Game and Desktop Mode)
+After=steam-lxc-dev-acl.service
+[Service]
+ExecStart=/usr/local/sbin/steam-lxc-game-killer
+Restart=always
+RestartSec=2
+[Install]
+WantedBy=multi-user.target
