@@ -1,7 +1,7 @@
 #!/bin/bash
 # B3 guest part: run as root INSIDE a throwaway systemd machine (see b3_units_nspawn.sh). Installs the shim with the
-# real install.sh, fakes a Steam client / SteamVR / game with systemd-run --user, and checks how
-# steam-lxc-steamvr.service and steam-lxc-steamvr-yield.service hand over to each other.
+# real install.sh, fakes a Steam client / SteamVR / games with systemd-run --user, and checks that the ONE user unit
+# steam-lxc-steamvr.service does launch, crash relaunch, yield/resume, VR fast start and session following in-process.
 set -u
 SRC=${1:-/src/shims/frame}
 FAILS=0; ok(){ echo "PASS $*"; }; bad(){ echo "FAIL $*"; FAILS=$((FAILS+1)); }
@@ -10,22 +10,33 @@ waitfor(){ local n=$1 t=$2; shift 2; for _ in $(seq $((t*5))); do "$@" && { ok "
 
 id steam >/dev/null 2>&1 || useradd -m steam
 U=$(id -u steam); H=/home/steam; ST=$H/.local/share/Steam; VRB=$ST/steamapps/common/SteamVR/bin/linux64
+WANTS=$H/.config/systemd/user/default.target.wants
 conf() { cat > /etc/default/steam-lxc <<D
 STEAM_LXC_USER=steam
 FRAME_SHIM_STEAMVR_ALWAYS_ON=$1
 FRAME_SHIM_STEAMVR_YIELD=$2
 FRAME_SHIM_STEAMVR_START_DELAY=1
+FRAME_SHIM_STEAMVR_RELAUNCH_DELAY=2
 FRAME_SHIM_STEAMVR_RESUME_DELAY=3
 FRAME_SHIM_YIELD_REAP_GRACE=0
-FRAME_SHIM_SUPERVISE_POLL=1
+FRAME_SHIM_ORPHAN_GRACE=1
+FRAME_SHIM_ORPHAN_SETTLE=0
+FRAME_SHIM_POLL=0.5
+${3:-}
 D
 }
 conf 1 1
+# Leftovers of the earlier two-unit build must be cleaned up by install.sh.
+mkdir -p /usr/local/lib/steam-lxc/frame /etc/systemd/user "$WANTS"
+touch /usr/local/lib/steam-lxc/frame/steam-lxc-steamvr-yield /etc/systemd/user/steam-lxc-steamvr-yield.service
+ln -sfn /etc/systemd/user/steam-lxc-steamvr-yield.service "$WANTS/steam-lxc-steamvr-yield.service"
 bash "$SRC/install.sh" | sed 's/^/install: /'
-check "install.sh enabled both user units" test -L $H/.config/systemd/user/default.target.wants/steam-lxc-steamvr-yield.service
-check "units verify" systemd-analyze verify /etc/systemd/user/steam-lxc-steamvr.service /etc/systemd/user/steam-lxc-steamvr-yield.service
+check "install.sh enabled steam-lxc-steamvr.service" test -L "$WANTS/steam-lxc-steamvr.service"
+check "old yield unit link removed" test ! -e "$WANTS/steam-lxc-steamvr-yield.service" -a ! -L "$WANTS/steam-lxc-steamvr-yield.service"
+check "old yield unit + script removed" test ! -e /etc/systemd/user/steam-lxc-steamvr-yield.service -a ! -e /usr/local/lib/steam-lxc/frame/steam-lxc-steamvr-yield
+check "only one shim user unit installed" test "$(ls /etc/systemd/user | grep -c steam-lxc)" = 1
+check "unit verifies" systemd-analyze verify /etc/systemd/user/steam-lxc-steamvr.service
 
-# Fakes: SteamVR's vrserver, Steam's reaper, a "steam" CLI that starts SteamVR, a running Steam client.
 install -d -o steam -g steam "$VRB" $H/.steam $H/bin
 cp /bin/bash "$VRB/vrserver"; cp /bin/bash $H/bin/reaper; cp /bin/bash $H/bin/steamwebhelper; chown -R steam: $H
 cat > /usr/local/bin/steam <<S
@@ -39,48 +50,55 @@ us() { runuser -u steam -- env XDG_RUNTIME_DIR=/run/user/$U DBUS_SESSION_BUS_ADD
 prop() { us systemctl --user show -p "$2" --value "$1"; }
 state_is() { [ "$(prop "$1" ActiveState)" = "$2" ]; }
 vrup() { pgrep -u steam -x vrserver >/dev/null; }
-us systemd-run --user --unit fakesteam -q $H/bin/steamwebhelper -c 'while :; do sleep 1; done'
-us sh -c "systemctl --user show -p MainPID --value fakesteam > $H/.steam/steam.pid"
+vrdown() { ! vrup; }
+launches() { grep -c 'steam://run/250820' /tmp/steam-calls; }
+fake_steam() { us systemd-run --user --unit "$1" -q $H/bin/steamwebhelper -c 'while :; do sleep 1; done'
+               us sh -c "systemctl --user show -p MainPID --value $1 > $H/.steam/steam.pid"; }
+game() { us systemd-run --user --unit "$1" -q $H/bin/reaper -c 'while :; do sleep 0.2; done' reaper SteamLaunch "AppId=$2" -- game; }
+fake_steam fakesteam
 us systemctl --user daemon-reload
-us systemctl --user start steam-lxc-steamvr.service steam-lxc-steamvr-yield.service
+us systemctl --user start steam-lxc-steamvr.service
+SVC=steam-lxc-steamvr.service
 
-echo "--- always-on start"
+echo "--- launch + crash relaunch inside the one unit"
 waitfor "SteamVR launched through steam://run/250820" 20 grep -q 'steam://run/250820' /tmp/steam-calls
 waitfor "vrserver up" 10 vrup
-check "steamvr unit active" test "$(prop steam-lxc-steamvr.service ActiveState)" = active
-check "yield unit active" test "$(prop steam-lxc-steamvr-yield.service ActiveState)" = active
-sleep 2
+waitfor "unit supervising it" 10 bash -c "journalctl _SYSTEMD_USER_UNIT=steam-lxc-steamvr.service -o cat | grep -q supervising"
+for u in $(us systemctl --user list-units --plain --no-legend 'fakevr-*' | awk '{print $1}'); do us systemctl --user kill -s KILL "$u"; done
+waitfor "relaunched after crash (in-loop)" 20 bash -c "[ \$(grep -c 'steam://run/250820' /tmp/steam-calls) -ge 2 ] && pgrep -u steam -x vrserver >/dev/null"
+check "no unit restart for the crash" test "$(prop $SVC NRestarts)" = 0
 
-echo "--- flat game -> SteamVR yields, unit stops cleanly without restart loop"
-us systemd-run --user --unit fakegame -q $H/bin/reaper -c 'while :; do sleep 0.2; done' reaper SteamLaunch AppId=4242 -- game
-waitfor "vrserver stopped" 20 bash -c '! pgrep -u steam -x vrserver >/dev/null'
-waitfor "steamvr unit inactive (exit 0 on yield)" 15 state_is steam-lxc-steamvr.service inactive
-check "steamvr unit result success" test "$(prop steam-lxc-steamvr.service Result)" = success
-sleep 4
-check "no relaunch while the game runs" bash -c '! pgrep -u steam -x vrserver >/dev/null'
-us systemctl --user start steam-lxc-steamvr.service; sleep 3
-check "manual unit start waits while yielded (no SteamVR)" bash -c '! pgrep -u steam -x vrserver >/dev/null'
+echo "--- flat game -> SteamVR stops, unit stays active, no relaunch"
+sleep 2; game fakegame 4242
+waitfor "vrserver stopped" 20 vrdown
+N=$(launches); sleep 5
+check "unit still active (single loop)" state_is $SVC active
+check "no relaunch while the game runs" test "$(launches)" = "$N"
 
 echo "--- game exits -> resume"
 us systemctl --user stop fakegame
 waitfor "SteamVR back after resume delay" 30 vrup
-check "steamvr unit active again" test "$(prop steam-lxc-steamvr.service ActiveState)" = active
 
 echo "--- VR game while yielded -> immediate start"
-us systemd-run --user --unit fakegame2 -q $H/bin/reaper -c 'while :; do sleep 0.2; done' reaper SteamLaunch AppId=4242 -- game
-waitfor "yield again" 20 bash -c '! pgrep -u steam -x vrserver >/dev/null'
-sed -i 's/^FRAME_SHIM_STEAMVR_YIELD=1$/FRAME_SHIM_STEAMVR_YIELD=1\nFRAME_SHIM_STEAMVR_YIELD_VR=4343/' /etc/default/steam-lxc
-us systemd-run --user --unit fakevrgame -q $H/bin/reaper -c 'while :; do sleep 0.2; done' reaper SteamLaunch AppId=4343 -- game
-waitfor "VR override app starts SteamVR at once (no resume delay)" 12 vrup
+sleep 2; game fakegame2 4242
+waitfor "yield again" 20 vrdown
+conf 1 1 "FRAME_SHIM_STEAMVR_YIELD_VR=4343"   # read by the classifier at each new launch
+game fakevrgame 4343
+waitfor "VR override app starts SteamVR at once" 8 vrup
 us systemctl --user stop fakegame2 fakevrgame
 
-echo "--- toggles off -> ExecCondition skips both units"
-conf 1 0; us systemctl --user restart steam-lxc-steamvr-yield.service; sleep 1
-check "yield unit skipped when FRAME_SHIM_STEAMVR_YIELD=0" test "$(prop steam-lxc-steamvr-yield.service ActiveState)" = inactive
-conf 0 0; us systemctl --user restart steam-lxc-steamvr.service; sleep 1
-check "steamvr unit skipped when ALWAYS_ON=0" test "$(prop steam-lxc-steamvr.service ActiveState)" = inactive
+echo "--- session switch: Steam client replaced -> unit follows it without restarting"
+sleep 2; us systemctl --user stop fakesteam
+for u in $(us systemctl --user list-units --plain --no-legend 'fakevr-*' | awk '{print $1}'); do us systemctl --user stop "$u"; done
+sleep 3; N=$(launches); fake_steam fakesteam2
+waitfor "SteamVR launched for the new Steam client" 20 bash -c "[ \$(grep -c 'steam://run/250820' /tmp/steam-calls) -gt $N ] && pgrep -u steam -x vrserver >/dev/null"
+check "still no unit restarts" test "$(prop $SVC NRestarts)" = 0
+
+echo "--- toggles off"
+conf 0 0; us systemctl --user restart $SVC; sleep 1
+check "unit skipped by ExecCondition when ALWAYS_ON=0" state_is $SVC inactive
 bash "$SRC/install.sh" >/dev/null
-check "install.sh with toggles off removes the enable links" test ! -e $H/.config/systemd/user/default.target.wants/steam-lxc-steamvr-yield.service
+check "install.sh with toggle off removes the enable link" test ! -e "$WANTS/steam-lxc-steamvr.service"
 echo "--- journal (steam-lxc-intended)"; journalctl -t steam-lxc-intended --no-pager -o cat | tail -20
-[ $FAILS = 0 ] || journalctl _SYSTEMD_USER_UNIT=steam-lxc-steamvr.service --no-pager -o short-monotonic | tail -30; echo "--- steam stub calls"; cat /tmp/steam-calls
+[ $FAILS = 0 ] || { journalctl _SYSTEMD_USER_UNIT=$SVC --no-pager -o short-monotonic | tail -40; echo "--- steam stub calls"; cat /tmp/steam-calls; }
 echo "B3 $([ $FAILS = 0 ] && echo OK || echo "$FAILS FAILED")"

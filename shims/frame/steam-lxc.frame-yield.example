@@ -1,6 +1,6 @@
 # Frame shim: "SteamVR yields to non-VR games" settings. Append to /etc/default/steam-lxc (all inert unless
 # FRAME_SHIM_STEAMVR_ALWAYS_ON=1 and FRAME_SHIM_STEAMVR_YIELD=1). Pending better Steam Frame support in SteamOS.
-# 1 = run steam-lxc-steamvr-yield: a confirmed VR game starts SteamVR at once; any other game (flat or unknown) stops it
+# 1 = inside steam-lxc-steamvr.service (one service): a confirmed VR game starts SteamVR at once; any other game (flat or unknown) stops it
 FRAME_SHIM_STEAMVR_YIELD=0
 # Appids that always count as non-VR / as VR (space or comma separated); they win over Steam's appinfo. Examples only.
 FRAME_SHIM_STEAMVR_YIELD_FLAT=
@@ -16,3 +16,5 @@ FRAME_SHIM_FLAT_STREAM_RES=1920x1080
 FRAME_SHIM_FLAT_STREAM_HZ=60
 # Optional: gamescope's "<Make> <Model>" of the HDMI display, if gamescopectl cannot report it
 FRAME_SHIM_FLAT_STREAM_DISPLAY=
+# Seconds before SteamVR is relaunched after it crashed (vrserver exited on its own)
+FRAME_SHIM_STEAMVR_RELAUNCH_DELAY=30

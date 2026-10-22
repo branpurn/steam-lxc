@@ -14,7 +14,7 @@ stops or restarts Steam, gamescope, SteamVR or the session.
 | setcap compositor | `FRAME_SHIM_STEAMVR_SETCAP` | `bin/steamvr-setcap`, `systemd/steam-lxc-steamvr-setcap.*`, `host/` |
 | rtkit | `FRAME_SHIM_RTKIT` | (pacman package) |
 | Frame Wireless Adapter | `FRAME_SHIM_DONGLE_NM`, `FRAME_DONGLE_IFACE` | `dongle/` |
-| SteamVR yields to non-VR games (+ 1080p flat stream) | `FRAME_SHIM_STEAMVR_YIELD*`, `FRAME_SHIM_STEAMVR_RESUME_DELAY`, `FRAME_SHIM_FLAT_STREAM_*` (see `steam-lxc.frame-yield.example`) | `bin/steam-lxc-steamvr-yield`, `bin/steam-lxc-vrclass`, `bin/steam-lxc-flat`, `lib/`, `systemd-user/steam-lxc-steamvr-yield.service`, `tests/` |
+| SteamVR yields to non-VR games (+ 1080p flat stream) | `FRAME_SHIM_STEAMVR_YIELD*`, `FRAME_SHIM_STEAMVR_RESUME_DELAY`, `FRAME_SHIM_FLAT_STREAM_*` (see `steam-lxc.frame-yield.example`) | `bin/steam-lxc-steamvr` (same service), `bin/steam-lxc-vrclass`, `bin/steam-lxc-flat`, `lib/`, `tests/` |
 
 ## 1. Always-on SteamVR
 **Why:** a Proton VR game (for example VRChat) launched from the Frame does not start SteamVR on Linux. Steam logs
@@ -27,8 +27,13 @@ unless the toggle is 1. The script:
 2. if no `vrserver` runs, waits `FRAME_SHIM_STEAMVR_START_DELAY` seconds, then asks the **running Steam client** to
    start SteamVR with `steam -ifrunning steam://run/250820` (the same as pressing Play), using the Steam process's
    display and D-Bus environment;
-3. supervises: it exits non-zero when vrserver or the Steam client goes away, and `Restart=on-failure`
-   (RestartSec=30) launches it again through the next Steam client.
+3. supervises in one loop (poll 1 s):
+   - if vrserver dies on its own, it relaunches after `FRAME_SHIM_STEAMVR_RELAUNCH_DELAY` (30 s);
+   - if the Steam client goes away (session switch), it waits for the next one and launches again;
+   - with `FRAME_SHIM_STEAMVR_YIELD=1`, it also yields to non-VR games (section 6).
+
+   Only `FRAME_SHIM_STEAMVR_MAX_FAILS` (5) failed launches in a row end the process. `Restart=on-failure`
+   (RestartSec=30) then restarts it.
 
 Steam picks SteamVR's runtime (SteamLinuxRuntime_sniper, app 1628350, which Steam installs into any library). Running
 `bin/vrstartup.sh` directly outside Steam fails with `no steam runtime environment set, no sniper SLR found`.
@@ -50,7 +55,7 @@ now leaves an already-running SteamVR alone and only supervises it.
 **Game Mode and Desktop Mode:**
 - SteamVR started through Steam runs in the session's logind scope.
 - When the session ends or switches, SteamVR ends with Steam.
-- The service notices Steam is gone, restarts, waits for the next session's Steam, and launches again.
+- The service notices Steam is gone, waits for the next session's Steam (without restarting), and launches again.
 - Linger keeps the user unit alive across switches.
 
 **HDMI / gamescope:** the Frame is a streamed (vrlink) HMD, not a DRM connector. SteamVR does not need a DRM lease and
@@ -141,15 +146,19 @@ audio encoder only, no NVENC video encoder and no capture method. Without SteamV
 `>>> Starting desktop stream` and `Capture method set to Desktop PipeWire NV12 + NVENC H264`. But without SteamVR,
 VR games launched from the Frame do not start SteamVR on Linux (section 1). This piece gives you both.
 
-**Rule:** `FRAME_SHIM_STEAMVR_YIELD=1` (needs `FRAME_SHIM_STEAMVR_ALWAYS_ON=1`) runs `steam-lxc-steamvr-yield.service`, a
-user unit next to `steam-lxc-steamvr.service`.
+**One service:** everything runs in the single loop of `steam-lxc-steamvr.service` (section 1): launch, crash
+relaunch, orphan cleanup, following Steam across session switches, the VR/non-VR watcher and the 1080p stream mode.
+State is internal to that process. There is no second unit and no hand-over file between units (earlier builds had a
+separate `steam-lxc-steamvr-yield.service`; `install.sh` removes it). `FRAME_SHIM_STEAMVR_YIELD=1` (needs
+`FRAME_SHIM_STEAMVR_ALWAYS_ON=1`) turns the watcher part on.
+
+**Rule:**
 - When a game launches, it is matched by the game's Steam `reaper` process: exact comm, same UID, `AppId=<n>` in the
   argv. The reaper exists before the game window.
-- **Confirmed VR** → SteamVR must run. If it doesn't, the watcher starts `steam-lxc-steamvr.service` at once, with no
-  start delay.
+- **Confirmed VR** → SteamVR must run. If it doesn't, the loop launches it at once, with no start delay.
 - **Anything else (flat or unknown)** → SteamVR is stopped if it runs. Otherwise nothing happens.
-- When the last non-VR game exits, the watcher waits `FRAME_SHIM_STEAMVR_RESUME_DELAY` seconds (default 15), then starts
-  `steam-lxc-steamvr.service` again. If a second non-VR game started meanwhile, it takes over the yield.
+- When the last non-VR game exits, the loop waits `FRAME_SHIM_STEAMVR_RESUME_DELAY` seconds (default 15), then launches
+  SteamVR again. If a second non-VR game started meanwhile, it takes over the yield.
 - `FRAME_SHIM_STEAMVR_YIELD_VR` / `FRAME_SHIM_STEAMVR_YIELD_FLAT` (appid lists) win over everything else.
 
 **Classifier (`bin/steam-lxc-vrclass APPID…`, read-only):** reads `<Steam root>/appcache/appinfo.vdf` (binary
@@ -175,16 +184,20 @@ from its UI). The steps are:
 3. Reap SteamVR helpers left without a vrserver (TERM, then KILL), as in section 1.
 
 A vrserver that ignores SIGTERM is left running and logged. It is never SIGKILLed. Nothing uses `pkill`/`killall`.
-`steam-lxc-steamvr` honours the yield: it does not launch while a yield is active, and it exits 0 (no restart loop)
-when vrserver was stopped for one. The state file is `$XDG_RUNTIME_DIR/steam-lxc-frame/yield`.
+A vrserver the loop stopped itself is not treated as a crash. A vrserver that dies on its own is relaunched after
+`FRAME_SHIM_STEAMVR_RELAUNCH_DELAY` seconds (default 30) inside the loop. The unit is only restarted by systemd after
+`FRAME_SHIM_STEAMVR_MAX_FAILS` (5) launches in a row that bring up no vrserver.
 
 **Race with the stream type:** the Frame picks VR or desktop streaming about a second after the launch, often before
-SteamVR has finished stopping. If the log already shows `>>> Starting VR stream` for that launch, the watcher logs
+SteamVR has finished stopping. If the log already shows `>>> Starting VR stream` for that launch, the service logs
 `yield: the Frame stream had already started on the VR path; restart the stream on the Frame (or relaunch app N)`.
 There is no supported way to make the client renegotiate. To stop SteamVR *before* Steam starts a particular game,
 put the optional wrapper in its launch options:
 `/usr/local/lib/steam-lxc/frame/steam-lxc-flat %command%`
-It stops SteamVR synchronously, then `exec`s the game. Whether this beats the Frame's stream-type decision is to be
+It registers its PID in `$XDG_RUNTIME_DIR/steam-lxc-frame/flat.d/` and stops SteamVR synchronously. It takes the
+service's lock (`steamvr.lock`), so the loop cannot launch in between. Then it `exec`s the game under the same PID. The
+service keeps SteamVR down until that PID exits, even if appinfo says the game is VR, so you can play a VR-optional game
+flat. Whether this beats the Frame's stream-type decision is to be
 confirmed live.
 
 **1080p while a non-VR game streams to the Frame (`FRAME_SHIM_FLAT_STREAM_RES`, shim default `1920x1080`, empty =
@@ -194,13 +207,13 @@ Frame asks for `1920x1080`, gamescope's PipeWire node delivers 3840x2160, and yo
 - a yield is active (non-VR game running);
 - `streaming_log.txt` shows a live `>>> Starting desktop stream`;
 
-the watcher sets gamescope's output mode to that size. It uses the mechanism Steam's own external-display resolution
+the service sets gamescope's output mode to that size. It uses the mechanism Steam's own external-display resolution
 setting uses:
 1. write the line `"<Make> <Model>:WxH@Hz"` (display name from `gamescopectl`, or `FRAME_SHIM_FLAT_STREAM_DISPLAY`)
    into `$GAMESCOPE_MODE_SAVE_FILE` (`~/.config/gamescope/modes.cfg` with gamescope-session-plus);
 2. set `GAMESCOPE_DISPLAY_MODE_NUDGE` on the root window.
 
-The original file is saved and put back when the stream stops, the game exits, or the watcher stops. If Steam changed
+The original file is saved and put back when the stream stops, the game exits, or the service stops. If Steam changed
 the file meanwhile, it is left alone.
 
 Trade-offs:
@@ -212,13 +225,13 @@ Trade-offs:
   - a fixed session `-W/-H` would also affect HDMI play.
 - The nudge path is what Steam uses, but it is still to be confirmed on a live session.
 
-**Logs:** `journalctl --user -u steam-lxc-steamvr-yield` and `journalctl -t steam-lxc-intended` (one line per
+**Logs:** `journalctl --user -u steam-lxc-steamvr` and `journalctl -t steam-lxc-intended` (one line per
 decision: `classify:`, `yield:`, `vr:`, `resume:`, `streamres:`).
 
 **Tests (offline, nothing live):** `tests/run-offline.sh` runs:
 - the lint (no `pkill`/`killall`, syntax);
 - B1: classifier on synthetic v29/v28 appinfo fixtures;
-- B2: the watcher in a temp sandbox with fake reaper/vrserver processes, decoys, a fake streaming log and stubbed
+- B2: the whole service loop in a temp sandbox (launch, crash relaunch with orphan reaping, yield/resume, wrapper) with fake reaper/vrserver processes, decoys, a fake streaming log and stubbed
   logger/systemctl/gamescopectl/xprop.
 
 B3 (`sudo tests/b3_units_nspawn.sh ROOT`) boots a throwaway systemd container, runs the real `install.sh`, and checks
