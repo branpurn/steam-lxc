@@ -19,7 +19,7 @@
 - **Embedded gamescope on NVIDIA in LXC**: `steamos-session.service` runs as the session user with `PAMName=login`; logind
   creates the session and libseat (logind backend) hands gamescope DRM master on the passed-through card. The host udev DB is
   bind-mounted read-only so logind/libinput can enumerate devices. Caps are dropped before exec so Steam's `srt-bwrap` works.
-- **VNC**: gamescope's Xwayland is rootless, so plain `x11vnc -display :0` dies with `X_GetImage` BadMatch.
+- **VNC** (opt-in, `STEAM_LXC_VNC=1`): gamescope's Xwayland is rootless, so plain `x11vnc -display :0` dies with `X_GetImage` BadMatch.
   Attaching to the "Steam Big Picture Mode" window (`x11vnc -id <wid>`) works and gives input via XTEST.
 - **Snapshots with a shared library** (`STEAMLIB_HOST` in `create-ct.sh`, then `60-shared-library.sh`): an `mpN:` bind mount disables `pct snapshot` ("snapshot feature is not available").
   The library is mounted with a raw `lxc.mount.entry` instead, which keeps snapshots working.
