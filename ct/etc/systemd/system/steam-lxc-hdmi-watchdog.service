@@ -1,0 +1,12 @@
+[Unit]
+Description=steam-lxc: retry a modeset when the HDMI link fails (polls DRM link-status; opt-in)
+After=steamos-session.service
+BindsTo=steamos-session.service
+ConditionPathExists=/etc/default/steam-lxc
+[Service]
+EnvironmentFile=-/etc/default/steam-lxc
+ExecStart=/usr/local/sbin/steam-lxc-hdmi-watchdog poll
+Restart=always
+RestartSec=10
+[Install]
+WantedBy=steamos-session.service

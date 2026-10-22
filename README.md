@@ -31,7 +31,8 @@ The file sets:
 - the output connector, mode and refresh rate for Game Mode and Desktop Mode;
 - the HDR-off option;
 - the NVIDIA tweaks (`composite_force`/`adaptive_sync`);
-- the connectors the display keep-awake watches.
+- the connectors the display keep-awake watches;
+- the opt-in HDMI link watchdog (`STEAM_LXC_HDMI_WATCHDOG`, `HDMI_WATCHDOG_*`).
 
 The host side uses env vars for `host/create-ct.sh`, plus `/etc/steam-lxc/host.conf` (`GPU_CTS`) and `/etc/steam-lxc/hook.d/`
 for site-specific hooks.
@@ -40,7 +41,9 @@ for site-specific hooks.
 - **`host/`** runs on the PVE host:
   - `create-ct.sh` (env-configured) and `lxc.conf.fragment` (device passthrough);
   - `hookscripts/steam-lxc-hook.sh`: GPU exclusivity, GPU cgroup prep, `/etc/steam-lxc/hook.d/*`;
-  - `sbin/gpu-exclusive.sh` and `sbin/steam-lxc-gpu-prep.sh`.
+  - `sbin/gpu-exclusive.sh` and `sbin/steam-lxc-gpu-prep.sh`;
+  - optional `sbin/steam-lxc-hdmi-watchdog-host` (+ `systemd/steam-lxc-hdmi-watchdog-host.service`): forwards host kernel
+    HDMI link-training failures to the CT's watchdog.
 - **`ct/install/`** runs inside the CT as root, in order: `10-bootstrap.sh`, `20-nvidia-hostmatched.sh`, `30-valve-repos.sh`,
   `35-user.sh`, `40-aur-session.sh`, `50-session.sh`. Optional extras:
   - `60-shared-library.sh <path>`: register an existing Steam library folder;
@@ -51,7 +54,8 @@ for site-specific hooks.
   - session switching (`/usr/libexec/os-session-select`, `steam-lxc-switch@.service`, a `steamosctl` shim);
   - `session-cleanup.sh`;
   - gamescope overrides (`/etc/gamescope-session-plus/sessions.d/steam`, `/etc/gamescope/scripts/*.lua`);
-  - display keep-awake, VNC for Game Mode, the Ctrl+Shift+Esc game killer, and the device ACL units.
+  - display keep-awake, VNC for Game Mode, the Ctrl+Shift+Esc game killer, and the device ACL units;
+  - the opt-in HDMI link watchdog (`steam-lxc-hdmi-watchdog`, see below).
 
 ## Quick start
 ```sh
@@ -76,6 +80,27 @@ Then sign in to Steam on the display or over VNC (`<ct-ip>:5900`; the VNC passwo
 The hookscript refuses `pre-start` while another GPU CT is running. By default every CT whose config passes `/dev/nvidia0`
 counts as a GPU CT; override with `GPU_CTS=` in `/etc/steam-lxc/host.conf`. To protect another existing CT, add
 `/usr/local/sbin/gpu-exclusive.sh "$1" || exit 1` to its own hookscript's pre-start.
+
+## HDMI link watchdog (opt-in)
+When the host driver keeps the GPU between sessions, every session start/stop is a modeset, and an HDMI 2.1 (FRL) link
+sometimes fails to train. The panel then shows artifacts or goes black until the next modeset. With
+`STEAM_LXC_HDMI_WATCHDOG=1` the CT retries a clean modeset when a failed link is seen:
+1. a DPMS off/on cycle through gamescope (`gamescope-display-wake sleep`, then wake), up to `HDMI_WATCHDOG_DPMS_TRIES`;
+2. only with `HDMI_WATCHDOG_ALLOW_SESSION_RESTART=1`, one `steamos-session` restart.
+
+Attempts are capped (`HDMI_WATCHDOG_MAX` per `HDMI_WATCHDOG_WINDOW`) and backed off. Every action is logged with tag
+`steam-lxc-intended` (`journalctl -t steam-lxc-intended`). Signals:
+- in the CT: DRM `link-status` on `HDMI_WATCHDOG_CONNECTORS`, polled (needs `modetest`, from libdrm);
+- on the host (optional, recommended because the driver may report training failures only in the host kernel log):
+  ```sh
+  install -m 755 host/sbin/steam-lxc-hdmi-watchdog-host /usr/local/sbin/
+  install -m 644 host/systemd/steam-lxc-hdmi-watchdog-host.service /etc/systemd/system/
+  systemctl daemon-reload && systemctl enable --now steam-lxc-hdmi-watchdog-host.service
+  ```
+  It sends an event to each running GPU CT (`HDMI_WATCHDOG_CTS`, else `GPU_CTS` in `/etc/steam-lxc/host.conf`). It
+  matches `HDMI_WATCHDOG_PATTERN`, which defaults to the NVIDIA "HDMI FRL link training failed" message.
+
+Run the tests with `ct/tests/hdmi_watchdog_test.sh`. Manual trigger: `steam-lxc-hdmi-watchdog event manual`.
 
 ## Optional shims
 - [`shims/frame/`](shims/frame/README.md): Steam Frame helpers (always-on SteamVR, headset record seeding, rtkit, Frame Wireless Adapter), pending better Steam Frame support in SteamOS from Valve. All off by default.

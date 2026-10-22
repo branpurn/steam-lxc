@@ -1,0 +1,106 @@
+#!/bin/bash
+# steam-lxc HDMI link watchdog (opt-in: STEAM_LXC_HDMI_WATCHDOG=1 in /etc/default/steam-lxc). Run as root in the CT.
+#   steam-lxc-hdmi-watchdog event <reason>   a failed link was seen (by the host helper, or by `poll`): retry a modeset
+#   steam-lxc-hdmi-watchdog poll             watch the DRM "link-status" property of HDMI_WATCHDOG_CONNECTORS
+#   steam-lxc-hdmi-watchdog status           print the retry state
+# Retry ladder, least disruptive first: a DPMS cycle through gamescope (display_sleep SLEEP, then WAKE; the CRTC is
+# turned off and on, so the driver trains the link again). Only with HDMI_WATCHDOG_ALLOW_SESSION_RESTART=1, attempts
+# after HDMI_WATCHDOG_DPMS_TRIES restart steamos-session. At most HDMI_WATCHDOG_MAX attempts per HDMI_WATCHDOG_WINDOW
+# seconds, spaced by an exponential backoff (HDMI_WATCHDOG_BACKOFF * 2^n). Every action is logged with
+# `logger -t steam-lxc-intended`. The CT cannot read the host kernel log; see host/sbin/steam-lxc-hdmi-watchdog-host.
+CONF=${STEAM_LXC_CONF:-/etc/default/steam-lxc}
+[ -r "$CONF" ] && . "$CONF"
+ON=${STEAM_LXC_HDMI_WATCHDOG:-0}
+CONNECTORS=${HDMI_WATCHDOG_CONNECTORS:-}
+MAX=${HDMI_WATCHDOG_MAX:-3}
+BACKOFF=${HDMI_WATCHDOG_BACKOFF:-15}
+WINDOW=${HDMI_WATCHDOG_WINDOW:-600}
+SETTLE=${HDMI_WATCHDOG_SETTLE:-5}
+DPMS_OFF=${HDMI_WATCHDOG_DPMS_OFF_SECONDS:-2}
+DPMS_TRIES=${HDMI_WATCHDOG_DPMS_TRIES:-2}
+ALLOW_RESTART=${HDMI_WATCHDOG_ALLOW_SESSION_RESTART:-0}
+INTERVAL=${HDMI_WATCHDOG_INTERVAL:-10}
+VERIFY=${HDMI_WATCHDOG_VERIFY:-15}
+STATE_DIR=${HDMI_WATCHDOG_STATE_DIR:-/run/steam-lxc}
+STATE=$STATE_DIR/hdmi-watchdog.state
+PENDING=$STATE_DIR/hdmi-watchdog.pending
+U=${STEAM_LXC_USER:-steam}
+# Seams for the offline tests
+NOW=${WD_NOW_CMD:-date +%s}
+SLEEP=${WD_SLEEP:-sleep}
+LOGGER=${WD_LOGGER:-logger}
+MODETEST=${WD_MODETEST:-modetest}
+WAKE=${WD_WAKE:-wake_as_user}
+SYSTEMCTL=${WD_SYSTEMCTL:-systemctl}
+
+log() { echo "hdmi-watchdog: $*"; $LOGGER -t steam-lxc-intended "$(date -Is) hdmi-watchdog: $*"; }
+wake_as_user() {   # gamescope-display-wake [sleep] as the session user, against the Game Mode gamescope
+  local uid; uid=$(id -u "$U") || return 1
+  runuser -u "$U" -- env XDG_RUNTIME_DIR=/run/user/$uid WAYLAND_DISPLAY=gamescope-0 /usr/local/bin/gamescope-display-wake "$@"
+}
+load() { count=0; first=0; next=0; [ -r "$STATE" ] && . "$STATE"; }
+save() { mkdir -p "$STATE_DIR"; printf 'count=%s\nfirst=%s\nnext=%s\n' "$count" "$first" "$next" >"$STATE"; }
+
+# Connector link-status from `modetest -c` (driver name auto-detected); prints Good/Bad/unknown
+link_status() {
+  $MODETEST -M "${HDMI_WATCHDOG_DRM_DRIVER:-nvidia-drm}" -c 2>/dev/null | awk -v c="$1" '
+    /^[0-9]+\t[0-9]+\t(dis)?connected\t/ { on = ($4 == c) }
+    on && /^[[:space:]]+[0-9]+ link-status:/ { want = 1; next }
+    on && want && /^[[:space:]]+value:/ { print ($2 == 1 ? "Bad" : "Good"); exit }'
+}
+
+relink() {   # $1 = attempt number (1-based)
+  if [ "$ALLOW_RESTART" = 1 ] && [ "$1" -gt "$DPMS_TRIES" ]; then
+    log "attempt $1/$MAX: restart steamos-session (DPMS cycles did not clear it)"
+    $SYSTEMCTL restart steamos-session.service
+  else
+    log "attempt $1/$MAX: DPMS cycle via gamescope (off ${DPMS_OFF}s, on) to retrain the link"
+    $WAKE sleep || { log "attempt $1: display_sleep SLEEP failed (gamescope not reachable?)"; return 1; }
+    $SLEEP "$DPMS_OFF"
+    $WAKE || { log "attempt $1: display_sleep WAKE failed"; return 1; }
+  fi
+}
+
+event() {
+  local reason=${1:-unspecified} now
+  [ "$ON" = 1 ] || { echo "hdmi-watchdog: disabled (STEAM_LXC_HDMI_WATCHDOG!=1), ignoring event: $reason"; return 0; }
+  $SYSTEMCTL is-active --quiet steamos-session.service || { log "event '$reason' ignored: steamos-session not active"; return 0; }
+  mkdir -p "$STATE_DIR"; exec 9>"$STATE_DIR/hdmi-watchdog.lock"
+  # A failure reported while a retry runs (often caused by that retry's own modeset) is queued, not lost.
+  flock -n 9 || { : >"$PENDING"; echo "hdmi-watchdog: retry in progress, event '$reason' queued"; return 0; }
+  while :; do
+    rm -f "$PENDING"
+    load; now=$($NOW)
+    if [ "$first" -gt 0 ] && [ $((now - first)) -ge "$WINDOW" ]; then count=0; first=0; next=0; fi
+    if [ "$count" -ge "$MAX" ]; then log "event '$reason': gave up ($count attempts in ${WINDOW}s); fix the link by hand"; return 0; fi
+    if [ "$now" -lt "$next" ]; then log "event '$reason': backoff, waiting $((next - now))s"; $SLEEP $((next - now)); fi
+    $SLEEP "$SETTLE"
+    now=$($NOW); count=$((count + 1)); [ "$first" -gt 0 ] || first=$now
+    next=$((now + BACKOFF * (1 << (count - 1))))
+    save
+    log "event '$reason'"
+    relink "$count"
+    $SLEEP "$VERIFY"   # let the modeset finish; the host helper reports a new failure meanwhile
+    [ -e "$PENDING" ] || { log "attempt $count: no new link failure reported within ${VERIFY}s"; return 0; }
+    reason="failed again after attempt $count"
+  done
+}
+
+poll() {
+  [ "$ON" = 1 ] || { echo "hdmi-watchdog: disabled"; exec sleep infinity; }
+  [ -n "$CONNECTORS" ] || { echo "hdmi-watchdog: HDMI_WATCHDOG_CONNECTORS empty, link-status polling off"; exec sleep infinity; }
+  while $SLEEP "$INTERVAL"; do
+    for c in $CONNECTORS; do
+      [ "$(link_status "$c")" = Bad ] && event "link-status Bad on $c"
+    done
+    [ -n "${WD_POLL_ONCE:-}" ] && break
+  done
+}
+
+case "${1:-}" in
+  event) shift; event "$*" ;;
+  poll) poll ;;
+  status) load; echo "enabled=$ON count=$count first=$first next=$next max=$MAX window=$WINDOW" ;;
+  link-status) for c in ${2:-$CONNECTORS}; do echo "$c $(link_status "$c")"; done ;;
+  *) echo "usage: $0 event <reason> | poll | status | link-status [connector]" >&2; exit 2 ;;
+esac
