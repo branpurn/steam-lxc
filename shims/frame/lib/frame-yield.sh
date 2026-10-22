@@ -9,7 +9,7 @@ FRAME_LIBEXEC=${FRAME_SHIM_LIBEXEC:-/usr/local/lib/steam-lxc/frame}
 FRAME_STEAM_ROOT=${FRAME_SHIM_STEAM_ROOT:-$HOME/.local/share/Steam}
 VRDIR=$(realpath -m "${FRAME_SHIM_STEAMVR_DIR:-$FRAME_STEAM_ROOT/steamapps/common/SteamVR}")
 FRAME_RUN=${FRAME_SHIM_RUNDIR:-${XDG_RUNTIME_DIR:-/run/user/$UID}/steam-lxc-frame}
-STREAM_RES=${FRAME_SHIM_FLAT_STREAM_RES-1920x1080}   # shim default; empty = off. Only used while yielded.
+STREAM_RES=${FRAME_SHIM_FLAT_STREAM_RES:-}   # opt-in, default off (known to crop; see README). Only used while yielded.
 
 flog() { logger -t steam-lxc-intended -- "$*" 2>/dev/null; echo "$*" >&2; }
 

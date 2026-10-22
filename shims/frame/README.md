@@ -210,8 +210,15 @@ service keeps SteamVR down until that PID exits, even if appinfo says the game i
 flat. Whether this beats the Frame's stream-type decision is to be
 confirmed live.
 
-**1080p while a non-VR game streams to the Frame (`FRAME_SHIM_FLAT_STREAM_RES`, shim default `1920x1080`, empty =
-off):** the Remote Play client crops a larger-than-requested desktop capture to its top-left corner. For example, the
+**Flat streams use stock gamescope scaling.** gamescope sizes its PipeWire capture buffer to the size the Remote
+Play client requests (aspect kept) and composites the focused game window scaled into it, so any client resolution
+gets the whole frame with no help from the shim. If a client shows only the top-left part, check the game's
+Xwayland size against what the game renders (`steam-lxc-stream-diag`, below) before changing anything.
+
+**Opt-in, known to crop: fixed output mode while a non-VR game streams (`FRAME_SHIM_FLAT_STREAM_RES`, default empty =
+off).** Kept only for experiments. Observed effect: the mode nudge resized the game's Xwayland under a running
+fullscreen game, which then showed only its top-left quarter on HDMI and on every Remote Play client. Older notes:
+ the Remote Play client crops a larger-than-requested desktop capture to its top-left corner. For example, the
 Frame asks for `1920x1080`, gamescope's PipeWire node delivers 3840x2160, and you see the top-left quarter. While
 **both** of these hold:
 - a yield is active (non-VR game running);
@@ -246,3 +253,11 @@ decision: `classify:`, `yield:`, `vr:`, `resume:`, `streamres:`).
 
 B3 (`sudo tests/b3_units_nspawn.sh ROOT`) boots a throwaway systemd container, runs the real `install.sh`, and checks
 the two user units hand over correctly (start, yield with exit 0, wait, resume, VR immediate start, toggles off).
+
+### Stream diagnostics (read-only)
+
+`/usr/local/lib/steam-lxc/frame/steam-lxc-stream-diag` (run as root in the CT, or as the Steam user) prints the
+gamescope output mode, each Xwayland root size, `GAMESCOPE_XWAYLAND_MODE_CONTROL`, focused app ids, top-level game
+window sizes on the game Xwayland, the PipeWire capture sizes from the journal, and the latest capture lines from
+`streaming_log.txt`. It changes nothing. Run it while the stream shows the problem.
+

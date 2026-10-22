@@ -1,5 +1,5 @@
 # Frame shim: temporary gamescope output mode while a NON-VR game streams to the Frame (FRAME_SHIM_FLAT_STREAM_RES,
-# shim default 1920x1080, empty = off). Works around the Remote Play client cropping a larger-than-requested desktop
+# OPT-IN, default off: known to make the crop worse, see README). Works around the Remote Play client cropping a larger-than-requested desktop
 # capture to its top-left corner (the Frame asks for 1920x1080; gamescope's PipeWire node delivers the output size).
 # Mechanism: the same one Steam's own external-display resolution setting uses. gamescope reads saved modes from
 # $GAMESCOPE_MODE_SAVE_FILE (gamescope-session-plus: ~/.config/gamescope/modes.cfg), lines "<Make Model>:WxH@Hz",
@@ -42,7 +42,7 @@ streamres_apply() {
     mv -f "$MODES_FILE.frame-tmp" "$MODES_FILE"
     echo "$line" > "$RES_STATE"
     streamres_nudge
-    flog "streamres: flat stream to Frame; gamescope output set to $t (was: $(grep -aF "$d:" "$RES_STATE.orig" 2>/dev/null | cut -d: -f2- || true))"
+    flog "streamres: flat stream to Frame; gamescope output set to $t (was: $(grep -aF "$d:" "$RES_STATE.orig" 2>/dev/null | cut -d: -f2- || true); empty = no saved mode, gamescope default)"
 }
 streamres_restore() {
     local line

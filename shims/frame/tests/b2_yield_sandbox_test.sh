@@ -61,10 +61,12 @@ FRAME_SHIM_ORPHAN_GRACE=1
 FRAME_SHIM_ORPHAN_SETTLE=0
 FRAME_SHIM_STEAMVR_MONITOR_WAIT=3
 FRAME_SHIM_STEAMVR_COMPOSITOR_WAIT=3
+FRAME_SHIM_FLAT_STREAM_RES=1920x1080
 FRAME_SHIM_POLL=0.2
 FRAME_SHIM_STEAM_CMD=$T/bin/fakesteam
 D
 export STEAM_LXC_DEFAULTS=$T/defaults FRAME_SHIM_LIBEXEC=$T/libexec FRAME_SHIM_RUNDIR=$T/run
+check "streamres is opt-in (shim default off)" grep -qF 'STREAM_RES=${FRAME_SHIM_FLAT_STREAM_RES:-}' "$HERE/lib/frame-yield.sh"
 SL=$ROOT/logs/streaming_log.txt; : > "$SL"
 "$T/bin/steamwebhelper" -c 'while :; do sleep 0.5; done' & SPID=$!; MINE+=($SPID); echo $SPID > "$T/home/.steam/steam.pid"
 

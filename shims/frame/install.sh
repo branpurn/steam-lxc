@@ -10,7 +10,7 @@ LIB=/usr/local/lib/steam-lxc/frame
 # Always installed (inert unless toggled): helper scripts and the user unit.
 install -d "$LIB"
 install -m 755 bin/steam-lxc-steamvr bin/vrsettings-merge bin/steamvr-setcap \
-    bin/steam-lxc-vrclass bin/steam-lxc-flat "$LIB/"
+    bin/steam-lxc-vrclass bin/steam-lxc-flat bin/steam-lxc-stream-diag "$LIB/"
 install -m 644 lib/frame-yield.sh lib/frame-streamres.sh "$LIB/"
 install -m 644 systemd/steam-lxc-steamvr-setcap.path systemd/steam-lxc-steamvr-setcap.service /etc/systemd/system/
 install -m 644 systemd-user/steam-lxc-steamvr.service /etc/systemd/user/
