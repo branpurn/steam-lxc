@@ -1,11 +1,17 @@
 #!/bin/bash
 # Frame shim: optional per-game launch-option prefix, pending better Steam Frame support in SteamOS from Valve.
 #   Steam > game > Properties > Launch Options:   /usr/local/lib/steam-lxc/frame/steam-lxc-flat %command%
-# Stops SteamVR synchronously (same graceful path as the yield watcher) BEFORE the game starts, then runs the game.
-# Treats the game as non-VR regardless of appinfo. Without FRAME_SHIM_STEAMVR_YIELD=1 it just runs the game.
+# Registers this process as a non-VR game with steam-lxc-steamvr (runtime spool flat.d/<pid>), stops SteamVR
+# synchronously under the service's lock (same graceful path), then execs the game (same PID). The service keeps
+# SteamVR down until this process exits, whatever appinfo says. Without FRAME_SHIM_STEAMVR_YIELD=1 it just runs the game.
 . "${FRAME_SHIM_LIBEXEC:-/usr/local/lib/steam-lxc/frame}/frame-yield.sh"
-if [ "${FRAME_SHIM_STEAMVR_ALWAYS_ON:-0}" = 1 ] && [ "${FRAME_SHIM_STEAMVR_YIELD:-0}" = 1 ]; then
-    "$FRAME_LIBEXEC/steam-lxc-steamvr-yield" --stop-now "${SteamAppId:-${STEAM_COMPAT_APP_ID:-0}}" "$$" >/dev/null 2>&1
-fi
 [ $# -gt 0 ] || { echo "usage: steam-lxc-flat %command%" >&2; exit 2; }
-exec "$@"   # same PID: the yield stays tied to this process until the game exits
+if [ "${FRAME_SHIM_STEAMVR_ALWAYS_ON:-0}" = 1 ] && [ "${FRAME_SHIM_STEAMVR_YIELD:-0}" = 1 ]; then
+    mkdir -p "$FLAT_SPOOL"
+    echo "${SteamAppId:-${STEAM_COMPAT_APP_ID:-0}}" > "$FLAT_SPOOL/$$"
+    (
+        flock -w 60 9
+        stop_steamvr "steam-lxc-flat wrapper, app ${SteamAppId:-${STEAM_COMPAT_APP_ID:-?}}"
+    ) 9>"$LOCK_FILE" >/dev/null 2>&1
+fi
+exec "$@"

@@ -4,7 +4,7 @@
 # Mechanism: the same one Steam's own external-display resolution setting uses. gamescope reads saved modes from
 # $GAMESCOPE_MODE_SAVE_FILE (gamescope-session-plus: ~/.config/gamescope/modes.cfg), lines "<Make Model>:WxH@Hz",
 # and re-picks the mode when GAMESCOPE_DISPLAY_MODE_NUDGE is set on the root window. The original file is saved
-# first and put back when the stream or the game ends. Only the yield watcher calls this, so plain HDMI play (no
+# first and put back when the stream or the game ends. Only steam-lxc-steamvr calls this, while yielded, so plain HDMI play (no
 # Frame stream) is never touched.
 # shellcheck shell=bash
 MODES_FILE=${FRAME_SHIM_GAMESCOPE_MODES_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/gamescope/modes.cfg}

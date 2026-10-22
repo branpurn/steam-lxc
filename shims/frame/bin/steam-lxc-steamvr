@@ -1,84 +1,150 @@
 #!/bin/bash
-# Always-on SteamVR (Frame shim). Run as the Steam user by steam-lxc-steamvr.service (systemd user unit).
-# SteamVR is launched THROUGH the running Steam client (steam -ifrunning steam://run/250820), exactly like pressing
-# Play: Steam picks the runtime (SteamLinuxRuntime_sniper), and SteamVR lives in the session's scope, so it ends with
-# the Game Mode / Desktop Mode session and comes back with the next one. Running vrstartup.sh directly does not work
-# outside Steam ("no steam runtime environment set").
-# With FRAME_SHIM_STEAMVR_YIELD=1 it stands aside while the yield watcher (steam-lxc-steamvr-yield) has a non-VR game
-# running: it does not launch SteamVR while the yield file exists, and exits 0 (no restart) when vrserver was stopped
-# for a yield.
+# Always-on SteamVR (Frame shim), pending better Steam Frame support in SteamOS from Valve. ONE process, run as the
+# Steam user by steam-lxc-steamvr.service (systemd user unit), doing all of it in a single loop:
+#  - launch SteamVR THROUGH the running Steam client (steam -ifrunning steam://run/250820), exactly like pressing
+#    Play: Steam picks the runtime (SteamLinuxRuntime_sniper) and SteamVR lives in the session's scope. Running
+#    vrstartup.sh directly does not work outside Steam ("no steam runtime environment set");
+#  - relaunch it when vrserver dies, after reaping orphaned SteamVR helpers;
+#  - follow the Steam client across Game Mode / Desktop Mode session switches;
+#  - with FRAME_SHIM_STEAMVR_YIELD=1: confirmed VR game -> SteamVR now; any other game (flat/unknown) -> stop SteamVR,
+#    resume after it exits; while such a game streams to the Frame, gamescope output = FRAME_SHIM_FLAT_STREAM_RES.
+# Never kills a SteamVR it did not decide to stop, never pkill/killall, never SIGKILL vrserver.
 set -u
 . "${FRAME_SHIM_LIBEXEC:-/usr/local/lib/steam-lxc/frame}/frame-yield.sh"
+. "$FRAME_LIBEXEC/frame-streamres.sh"
 [ "${FRAME_SHIM_STEAMVR_ALWAYS_ON:-0}" = 1 ] || { echo "FRAME_SHIM_STEAMVR_ALWAYS_ON is not 1; nothing to do"; exit 0; }
 DELAY=${FRAME_SHIM_STEAMVR_START_DELAY:-20}
+RELAUNCH=${FRAME_SHIM_STEAMVR_RELAUNCH_DELAY:-30}
 APPID=${FRAME_SHIM_STEAMVR_APPID:-250820}
 YIELD=${FRAME_SHIM_STEAMVR_YIELD:-0}
-yielding() { [ "$YIELD" = 1 ] && yield_active; }
+RESUME=${FRAME_SHIM_STEAMVR_RESUME_DELAY:-15}
+POLL=${FRAME_SHIM_POLL:-1}
+mkdir -p "$FRAME_RUN" "$FLAT_SPOOL"
+exec 9>"$LOCK_FILE"
+now() { date +%s; }
 
 # SteamVR helper processes left behind by a vrserver that died (Steam then still considers 250820 running, and
-# steam://run is a no-op). Matched precisely: our UID, exact comm, executable inside the SteamVR install. Never pkill -f.
-orphans() {
-    local p c exe
-    for p in $(pgrep -u "$UID" -x 'vrmonitor|vrdashboard|vrwebhelper|vrcompositor|vrstartup'); do
-        exe=$(readlink "/proc/$p/exe" 2>/dev/null) || continue
-        case "$exe" in "$VRDIR"/*) echo "$p" ;; esac
-    done
-}
-# Only while no vrserver runs, and only processes that stay orphaned across a 20 s grace period (a SteamVR that is
-# still starting up has vrserver within seconds).
+# steam://run is a no-op). Only while no vrserver runs, and only processes that stay orphaned across a grace period
+# (FRAME_SHIM_ORPHAN_GRACE, 20 s; a SteamVR that is still starting has vrserver within seconds).
 reap_orphans() {
-    vr_up && return 0
     local a b p
-    a=$(orphans | sort); [ -n "$a" ] || return 0
-    sleep 20
     vr_up && return 0
-    b=$(orphans | sort)
+    a=$(steamvr_procs 'vrmonitor|vrdashboard|vrwebhelper|vrcompositor|vrstartup' | sort); [ -n "$a" ] || return 0
+    sleep "${FRAME_SHIM_ORPHAN_GRACE:-20}"
+    vr_up && return 0
+    b=$(steamvr_procs 'vrmonitor|vrdashboard|vrwebhelper|vrcompositor|vrstartup' | sort)
     a=$(comm -12 <(echo "$a") <(echo "$b")); [ -n "$a" ] || return 0
     echo "reaping orphaned SteamVR processes (no vrserver): $(for p in $a; do printf '%s(%s) ' "$(cat /proc/$p/comm 2>/dev/null)" "$p"; done)"
     kill -TERM $a 2>/dev/null
     for _ in 1 2 3 4 5 6 7 8 9 10; do sleep 1; b=$(for p in $a; do kill -0 "$p" 2>/dev/null && echo "$p"; done); [ -z "$b" ] && break; done
     [ -n "$b" ] && kill -KILL $b 2>/dev/null
-    # Give Steam a moment to notice 250820 has ended.
-    sleep 10
+    sleep "${FRAME_SHIM_ORPHAN_SETTLE:-10}"   # give Steam a moment to notice 250820 has ended
 }
 
-# 1. Wait for the Steam client (steam.pid alive and steamwebhelper running).
-until pid=$(cat "$HOME/.steam/steam.pid" 2>/dev/null) && kill -0 "$pid" 2>/dev/null && pgrep -u "$UID" -x steamwebhelper >/dev/null; do
-    sleep 5
-done
+steam_alive() {
+    SPID=$(cat "$HOME/.steam/steam.pid" 2>/dev/null) && kill -0 "$SPID" 2>/dev/null && pgrep -u "$UID" -x steamwebhelper >/dev/null
+}
 
-# 2. Launch through Steam if SteamVR is not already running (never kill a SteamVR somebody else started).
-if yielding; then
-    echo "a non-VR game has SteamVR yielded; waiting"
-    while yielding; do kill -0 "$pid" 2>/dev/null || exit 1; sleep 2; done
-fi
-if ! vr_up; then
-    # A VR game is starting (the yield watcher set LAUNCH_NOW): no start delay.
-    if [ -f "$LAUNCH_NOW" ]; then rm -f "$LAUNCH_NOW"; else
-        for _ in $(seq "$DELAY"); do [ -f "$LAUNCH_NOW" ] && { rm -f "$LAUNCH_NOW"; break; }; sleep 1; done
+launch() {   # non-blocking: the steam:// forwarder runs in the background, the loop watches for vrserver
+    local envs=() line
+    while IFS= read -r line; do envs+=("$line"); done < <(steam_env)
+    if [ "${FRAME_SHIM_STEAMVR_QUIET:-0}" = 1 ]; then "$FRAME_LIBEXEC/vrsettings-merge" quiet || true; fi
+    echo "launching SteamVR via Steam (steam://run/$APPID)"
+    env "${envs[@]}" timeout 30 "${FRAME_SHIM_STEAM_CMD:-steam}" -ifrunning "steam://run/$APPID" >/dev/null 2>&1 &
+    LAUNCH_DEADLINE=$(( $(now) + ${FRAME_SHIM_STEAMVR_LAUNCH_TIMEOUT:-120} ))
+}
+
+# State (all internal): YPID/YAPP = the non-VR game SteamVR currently yields to; NEXT_LAUNCH = when SteamVR may be
+# (re)started; WE_STOPPED = we stopped vrserver ourselves (not a crash); FAILS = launches in a row without vrserver.
+YPID= YAPP= RESUME_AT= NEXT_LAUNCH= LAUNCH_DEADLINE= WE_STOPPED=0 FAILS=0 WAS_UP=0 SEEN=
+
+yield_to() {   # $1 pid $2 appid $3 class
+    local mark
+    YPID=$1 YAPP=$2 RESUME_AT= WE_STOPPED=1 LAUNCH_DEADLINE=
+    if vr_up; then
+        mark=$(stream_mark)
+        stop_steamvr "app $2 is $3"
+        if stream_vr_since "$mark" || [ "$(stream_state)" = vr ]; then
+            flog "yield: the Frame stream had already started on the VR path; restart the stream on the Frame (or relaunch app $2)"
+        fi
+    else
+        flog "yield: app $2 ($3) launched; SteamVR not running"
     fi
-    yielding && { echo "yielded during start delay"; exit 0; }
-    kill -0 "$pid" 2>/dev/null || exit 1
-    reap_orphans
-    vr_up || {
-        # The Steam client's own session environment (display, D-Bus) for the steam:// forwarder.
-        envs=()
-        for v in DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS; do
-            val=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n "s/^$v=//p" | head -1)
-            [ -n "$val" ] && envs+=("$v=$val")
-        done
-        if [ "${FRAME_SHIM_STEAMVR_QUIET:-0}" = 1 ]; then "$FRAME_LIBEXEC/vrsettings-merge" quiet || true; fi
-        echo "launching SteamVR via Steam (steam://run/$APPID)"
-        env "${envs[@]}" timeout 30 "${FRAME_SHIM_STEAM_CMD:-steam}" -ifrunning "steam://run/$APPID" >/dev/null 2>&1
-        for _ in $(seq 120); do vr_up && break; yielding && { echo "a non-VR game started meanwhile; yielding"; exit 0; }; sleep 1; done
-        vr_up || { echo "SteamVR did not start within 2 minutes" >&2; exit 1; }
-    }
-fi
-echo "SteamVR running (vrserver $(pgrep -u "$UID" -x vrserver | head -1)); supervising"
+}
 
-# 3. Supervise: exit non-zero when vrserver or the Steam client goes away; Restart=on-failure relaunches through the
-# (next) Steam client. SteamVR itself is not killed here: it belongs to Steam's session and ends with it.
-while kill -0 "$pid" 2>/dev/null && vr_up; do sleep "${FRAME_SHIM_SUPERVISE_POLL:-5}"; done
-if yielding; then echo "SteamVR stopped for a non-VR game (yield); the yield watcher restarts this unit afterwards"; exit 0; fi
-if kill -0 "$pid" 2>/dev/null; then echo "vrserver exited" >&2; else echo "Steam exited (session ended or switched)" >&2; fi
-exit 1
+watch_games() {
+    local cur fr pid app c
+    cur=$(reapers); fr=$(flat_requests)
+    # The steam-lxc-flat wrapper already stopped SteamVR (under the lock); just adopt its game.
+    if [ -n "$fr" ] && { [ -z "$YPID" ] || ! grep -q "^$YPID " <<<"$fr"; }; then
+        read -r pid app <<<"$(head -1 <<<"$fr")"
+        [ -n "$YPID" ] || flog "yield: steam-lxc-flat registered app ${app:-?}"
+        yield_to "$pid" "${app:-0}" "flat (wrapper)"
+    fi
+    while read -r pid app; do
+        [ -n "$pid" ] || continue
+        grep -qx "$pid" <<<"$SEEN" && continue
+        SEEN=$(printf '%s\n%s' "$SEEN" "$pid")
+        c=$(classify "$app")
+        case "$c" in
+            ignore) ;;
+            vr)
+                [ -n "$fr" ] && continue                        # a wrapper-forced flat game still runs
+                if [ -n "$YPID" ]; then YPID= YAPP= RESUME_AT=; fi
+                if vr_up; then flog "vr: app $app launched, SteamVR already running"
+                else flog "vr: app $app launched, starting SteamVR now"; NEXT_LAUNCH=$(now); fi ;;
+            *) yield_to "$pid" "$app" "$c" ;;
+        esac
+    done <<<"$cur"
+    SEEN=$(grep -xF -f <(cut -d' ' -f1 <<<"$cur") <<<"$SEEN" || true)
+
+    [ -n "$YPID" ] || return 0
+    kill -0 "$YPID" 2>/dev/null && { RESUME_AT=; return 0; }
+    # flat -> flat: another non-VR game still runs; adopt it.
+    while read -r pid app; do
+        [ -n "$pid" ] || continue
+        c=$(classify "$app"); [ "$c" = vr ] || [ "$c" = ignore ] && continue
+        YPID=$pid YAPP=$app RESUME_AT=; return 0
+    done <<<"$cur"
+    [ -n "$RESUME_AT" ] || { RESUME_AT=$(( $(now) + RESUME )); flog "resume: app $YAPP exited; SteamVR resumes in ${RESUME}s"; }
+    [ "$(now)" -ge "$RESUME_AT" ] || return 0
+    flog "resume: starting SteamVR again"
+    YPID= YAPP= RESUME_AT=; NEXT_LAUNCH=$(now)
+}
+
+trap 'streamres_restore; exit 0' TERM INT
+flog "steamvr: started (yield ${YIELD}, start delay ${DELAY}s, flat stream res '${STREAM_RES:-off}')"
+while :; do
+    # Follow the Steam client (it ends and comes back with each session switch).
+    if ! steam_alive; then
+        streamres_restore
+        [ -n "${SPID:-}" ] && echo "Steam exited (session ended or switched); waiting for the next Steam client"
+        until steam_alive; do sleep 5; done
+        NEXT_LAUNCH=$(( $(now) + DELAY )); LAUNCH_DEADLINE=; WAS_UP=0
+    fi
+    flock 9
+    [ "$YIELD" = 1 ] && watch_games
+    # 1080p while a non-VR game streams to the Frame (desktop stream live); restored otherwise. Before any launch work.
+    if [ -n "$YPID" ] && [ "$(stream_state)" = desktop ]; then streamres_apply; else streamres_restore; fi
+    if vr_up; then
+        [ "$WAS_UP" = 1 ] || { echo "SteamVR running (vrserver $(vr_pids | head -1)); supervising"; FAILS=0; }
+        WAS_UP=1 LAUNCH_DEADLINE= WE_STOPPED=0
+    else
+        if [ "$WAS_UP" = 1 ] && [ "$WE_STOPPED" = 0 ]; then
+            echo "vrserver exited; relaunching in ${RELAUNCH}s" >&2; NEXT_LAUNCH=$(( $(now) + RELAUNCH ))
+        fi
+        WAS_UP=0
+        if [ -n "$LAUNCH_DEADLINE" ] && [ "$(now)" -ge "$LAUNCH_DEADLINE" ]; then
+            FAILS=$((FAILS + 1)); LAUNCH_DEADLINE=; NEXT_LAUNCH=$(( $(now) + RELAUNCH ))
+            echo "SteamVR did not start (attempt $FAILS)" >&2
+            [ "$FAILS" -ge "${FRAME_SHIM_STEAMVR_MAX_FAILS:-5}" ] && { flock -u 9; exit 1; }
+        fi
+        [ -n "$NEXT_LAUNCH" ] || NEXT_LAUNCH=$(( $(now) + DELAY ))
+        if [ -z "$YPID" ] && [ -z "$LAUNCH_DEADLINE" ] && [ "$(now)" -ge "$NEXT_LAUNCH" ]; then
+            reap_orphans
+            vr_up || launch
+        fi
+    fi
+    flock -u 9
+    sleep "$POLL"
+done

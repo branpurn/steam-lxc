@@ -1,5 +1,5 @@
-# Frame shim: shared helpers for "SteamVR yields to flat games" (sourced by bin/steam-lxc-steamvr-yield,
-# bin/steam-lxc-flat and bin/steam-lxc-steamvr). Pending better Steam Frame support in SteamOS from Valve.
+# Frame shim: shared helpers for always-on SteamVR and "SteamVR yields to non-VR games" (sourced by
+# bin/steam-lxc-steamvr, the single service process, and by the bin/steam-lxc-flat launch wrapper). Pending better Steam Frame support in SteamOS from Valve.
 # Everything is overridable for the offline tests: STEAM_LXC_DEFAULTS (config file), FRAME_SHIM_RUNDIR,
 # FRAME_SHIM_STEAM_ROOT, FRAME_SHIM_STEAMVR_DIR, FRAME_SHIM_LIBEXEC.
 # shellcheck shell=bash
@@ -9,9 +9,7 @@ FRAME_LIBEXEC=${FRAME_SHIM_LIBEXEC:-/usr/local/lib/steam-lxc/frame}
 FRAME_STEAM_ROOT=${FRAME_SHIM_STEAM_ROOT:-$HOME/.local/share/Steam}
 VRDIR=$(realpath -m "${FRAME_SHIM_STEAMVR_DIR:-$FRAME_STEAM_ROOT/steamapps/common/SteamVR}")
 FRAME_RUN=${FRAME_SHIM_RUNDIR:-${XDG_RUNTIME_DIR:-/run/user/$UID}/steam-lxc-frame}
-YIELD_FILE=$FRAME_RUN/yield           # "<appid> <pid> <epoch>" while SteamVR stands aside for a non-VR app
-LAUNCH_NOW=$FRAME_RUN/launch-now      # a VR app is starting: steam-lxc-steamvr skips its start delay
-STREAM_RES=${FRAME_SHIM_FLAT_STREAM_RES-1920x1080}   # shim default; empty = off. Only used by the yield watcher.
+STREAM_RES=${FRAME_SHIM_FLAT_STREAM_RES-1920x1080}   # shim default; empty = off. Only used while yielded.
 
 flog() { logger -t steam-lxc-intended -- "$*" 2>/dev/null; echo "$*" >&2; }
 
@@ -27,18 +25,10 @@ steamvr_procs() {   # $1 = comm regex for pgrep -x
     done
 }
 
-# Yield state ---------------------------------------------------------------------------------------------------------
-yield_set() { mkdir -p "$FRAME_RUN"; echo "$1 $2 $(date +%s)" > "$YIELD_FILE.tmp" && mv -f "$YIELD_FILE.tmp" "$YIELD_FILE"; }
-yield_clear() { rm -f "$YIELD_FILE"; }
-# Active when the file exists. The watcher removes it; a stale file (watcher gone, pid dead for >2 min) is ignored so a
-# crashed watcher can never keep SteamVR down for good.
-yield_active() {
-    local a p t
-    [ -f "$YIELD_FILE" ] || return 1
-    read -r a p t < "$YIELD_FILE" 2>/dev/null || return 1
-    kill -0 "$p" 2>/dev/null && return 0
-    [ $(( $(date +%s) - ${t:-0} )) -lt 120 ]
-}
+# Runtime dir: steamvr.lock serialises stop/launch between the service and the steam-lxc-flat wrapper; flat.d/<pid>
+# (content: appid) is how the wrapper tells the service "this process is a non-VR game" (no second service involved).
+LOCK_FILE=$FRAME_RUN/steamvr.lock
+FLAT_SPOOL=$FRAME_RUN/flat.d
 
 # Graceful stop. SteamVR on Linux has no supported "quit" command line (vrcmd/vrmonitor only offer in-app quit), so:
 # 1. an optional site command (FRAME_SHIM_STEAMVR_YIELD_QUIT_CMD), 2. SIGTERM to the exact vrserver PID(s), which
@@ -90,4 +80,33 @@ steam_env() {
         val=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n "s/^$v=//p" | head -1)
         [ -n "$val" ] && printf '%s=%s\n' "$v" "$val"
     done
+}
+
+# Games --------------------------------------------------------------------------------------------------------------
+reapers() {    # "<pid> <appid>" for each Steam reaper of ours (exact comm, AppId=<n> in its argv)
+    local p a
+    for p in $(pgrep -u "$UID" -x reaper); do
+        a=$(tr '\0' '\n' < "/proc/$p/cmdline" 2>/dev/null | sed -n 's/^AppId=\([0-9]\+\)$/\1/p' | head -1)
+        [ -n "$a" ] && echo "$p $a"
+    done
+}
+flat_requests() {   # "<pid> <appid>" registered by steam-lxc-flat; dead entries are dropped
+    local f p
+    for f in "$FLAT_SPOOL"/*; do
+        [ -f "$f" ] || continue
+        p=${f##*/}
+        if kill -0 "$p" 2>/dev/null; then echo "$p $(cat "$f" 2>/dev/null)"; else rm -f "$f"; fi
+    done
+}
+classify() {   # prints vr|flat|unknown|ignore, cached per appid + appinfo mtime
+    local app=$1 m c why
+    m=$(stat -c %Y "$FRAME_STEAM_ROOT/appcache/appinfo.vdf" 2>/dev/null || echo 0)
+    c=$(awk -v a="$app" -v m="$m" '$1==a && $2==m {print $3; exit}' "$FRAME_RUN/vrclass" 2>/dev/null)
+    if [ -z "$c" ]; then
+        read -r _ c why < <("$FRAME_LIBEXEC/steam-lxc-vrclass" "$app" 2>/dev/null)
+        c=${c:-unknown}
+        mkdir -p "$FRAME_RUN"; echo "$app $m $c" >> "$FRAME_RUN/vrclass"
+        flog "classify: app $app -> $c (${why:-appinfo unreadable})"
+    fi
+    echo "$c"
 }

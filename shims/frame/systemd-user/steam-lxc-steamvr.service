@@ -1,12 +1,13 @@
 [Unit]
-Description=steam-lxc Frame shim: always-on SteamVR (pending better Steam Frame support in SteamOS)
+Description=steam-lxc Frame shim: always-on SteamVR, yields to non-VR games (pending better Steam Frame support in SteamOS)
 # Started by the Steam user's systemd --user manager (the Game/Desktop session is a logind session).
 After=default.target
-# Each session switch costs one restart; give up only on a real crash loop.
+# Session switches and vrserver crashes are handled inside the loop; a restart only follows repeated launch failures.
 StartLimitIntervalSec=600
 StartLimitBurst=10
 
 [Service]
+# On stop the loop restores a temporary gamescope mode (TERM trap). SteamVR belongs to Steam's session, not this unit.
 KillMode=mixed
 TimeoutStopSec=20
 Type=simple
@@ -15,7 +16,6 @@ ExecCondition=/bin/sh -c '. /etc/default/steam-lxc 2>/dev/null; [ "$FRAME_SHIM_S
 ExecStartPre=-/usr/local/lib/steam-lxc/frame/vrsettings-merge lastknown
 ExecStart=/usr/local/lib/steam-lxc/frame/steam-lxc-steamvr
 Restart=on-failure
-# Long enough that a failing start does not flash SteamVR windows on the screen in quick succession.
 RestartSec=30
 
 [Install]
