@@ -1,0 +1,12 @@
+[Unit]
+Description=steam-lxc: keep the Game Mode panel from staying blanked (DPMS)
+After=steamos-session.service
+BindsTo=steamos-session.service
+[Service]
+User=steam
+EnvironmentFile=-/etc/default/steam-lxc
+ExecStart=/usr/local/bin/steam-lxc-display-keepawake
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=steamos-session.service

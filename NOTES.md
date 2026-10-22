@@ -40,3 +40,28 @@
 ## Open
 - Remote Play from embedded gamescope on NVIDIA (upstream green-screen bug), Steam Frame streaming, SteamVR, Proton titles,
   audio sink routing, hidraw passthrough, a desktop-mode fallback (Plasma X11 + Big Picture, as in the gaming-enclave CT).
+
+## Fixed: panel blanked after idle (DPMS Off while the session was running)
+- **Cause:** Steam Game Mode's idle suspend (default about 1 h, even at the sign-in screen). Steam asks gamescope to
+  put the display to sleep (gamescope-control `display_sleep`) and then calls logind Suspend. Inside the CT,
+  suspend fails (`/sys/power/state`: EROFS, logged by Steam as "Issuing Suspend Command"), so nothing wakes the panel again.
+- **Fix:**
+  1. `/etc/systemd/sleep.conf.d/10-steam-lxc.conf` disallows every sleep mode, so logind's `CanSuspend` reports `no`.
+  2. `steam-lxc-display-keepawake.service` checks the watched connector (default `HDMI-A-2`, `KEEPAWAKE_CONNECTORS`
+     in `/etc/default/steam-lxc`) every 10 s. If it is connected and DPMS is Off, it sends gamescope-control
+     `display_sleep(WAKE)` with the small client in `ct/src/gamescope-display-wake/`.
+  Gamescope has no setting or env var to ignore `display_sleep` (checked in its 3.16.31 source). Steam's own idle
+  settings are per user and only show up after sign-in.
+- **Verified:** after `gamescope-display-wake sleep`, HDMI DPMS read Off, then went back to On within 10 s. The 1 h idle path has not been re-observed yet.
+
+## Fixed: `systemctl restart steamos-session` left the old gamescope running
+- **Cause:** with `PAMName=login`, pam_systemd moves the session into a logind scope (`user-1000.slice/session-cN.scope`).
+  That scope is outside the service's cgroup, so `KillMode=control-group` only killed the main bash script.
+  gamescope, Xwayland and Steam stayed alive and kept DRM master. The new instance then failed and ran
+  `short_session_recover`, which calls `steamosctl` (it doesn't exist here).
+- **Fix:** `session-cleanup.sh` runs as `ExecStartPre` and `ExecStopPost`. It terminates the user's seat0 logind
+  sessions, waits, and SIGKILLs any Game Mode stragglers, but leaves the user manager, D-Bus and PipeWire alone.
+  The wrapper creates the short-session tracker file. A `steamosctl` shim logs and exits 0, because there is no
+  desktop mode to switch to.
+- **Verified:** two real restarts. Each left exactly one gamescope and one seat0 session, NRestarts=0, HDMI On,
+  and the Steam login was kept.

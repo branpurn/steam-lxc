@@ -1,0 +1,6 @@
+#!/bin/bash
+# steam-lxc shim for SteamOS' steamosctl (steamos-manager CLI), which gamescope-session-steam calls from
+# short_session_recover ("steamosctl switch-to-desktop-mode"). There is no desktop session here, so log and succeed;
+# the unit's Restart=always retries Game Mode.
+logger -t steamosctl "steam-lxc shim: '$*' ignored (no desktop mode in this container)"
+exit 0

@@ -9,8 +9,13 @@ Group=steam
 SupplementaryGroups=video render input audio
 PAMName=login
 Environment=XDG_SEAT=seat0 XDG_SESSION_CLASS=user XDG_SESSION_TYPE=x11
+ExecStartPre=+/usr/local/lib/steam-lxc/session-cleanup.sh
 ExecStartPre=+/usr/local/lib/steam-lxc/dev-acl.sh
 ExecStart=/usr/local/bin/steamos-session
+# The session's processes live in a logind scope, not this cgroup; clean them up explicitly (see session-cleanup.sh).
+ExecStopPost=+/usr/local/lib/steam-lxc/session-cleanup.sh
+KillMode=control-group
+TimeoutStopSec=20
 Restart=always
 RestartSec=5
 [Install]
