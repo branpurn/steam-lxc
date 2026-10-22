@@ -1,13 +1,16 @@
--- steam-lxc: NVIDIA display tweaks, enforced continuously inside gamescope (survives package updates: /etc).
+-- steam-lxc: NVIDIA display tweaks (STEAM_LXC_NVIDIA_TWEAKS=1), enforced continuously inside gamescope.
+-- They fixed visual artifacting in Game Mode on an NVIDIA RTX GPU; /etc survives package updates.
 -- Same intent as the SteamOS VM's gamescope-nvidia-tweaks.service (which re-ran gamescopectl for ~60 s), but
 -- in-process: Steam can flip these at any time (e.g. GAMESCOPE_VRR_ENABLED / HDR atoms), so re-check every frame.
 --   composite_force = true   always composite, never direct scanout of client buffers
 --   adaptive_sync   = false  no VRR
---   hdr_enabled     = false  no HDR output
+--   hdr_enabled     = false  no HDR output (only with STEAM_LXC_DISABLE_HDR=1)
 -- Changes and a periodic status line go to the gamescope log ("[steam-lxc-tweaks]"), which is the readback:
 -- gamescopectl cannot read a convar (it always sends a value; `gamescopectl composite_force` with no value SETS it false).
-local wanted = { composite_force = true, adaptive_sync = false, hdr_enabled = false }
-local frames, status_every = 0, 120 * 600   -- status about every 10 min at 120 Hz
+if os.getenv("STEAM_LXC_NVIDIA_TWEAKS") ~= "1" then return end
+local wanted = { composite_force = true, adaptive_sync = false }
+if os.getenv("STEAM_LXC_DISABLE_HDR") == "1" then wanted.hdr_enabled = false end
+local frames, status_every = 0, 72000   -- status after 600 frames, then every 72000 frames (~10 min at 120 Hz)
 
 local function enforce(tag)
     for name, v in pairs(wanted) do

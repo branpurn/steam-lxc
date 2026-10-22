@@ -1,8 +1,11 @@
 #!/bin/bash
-# Pre-register the shared Steam library (bind-mounted at /mnt/steamlib/SteamLibrary) with the session user's Steam,
-# reusing the library's own contentid so Steam treats it as the same library. Run as root with the session stopped.
+# Optional: pre-register an existing Steam library folder (e.g. a host dir bind-mounted at /mnt/steamlib) with the
+# session user's Steam, reusing the library's own contentid. Run as root with the session stopped.
+# Usage: 60-shared-library.sh /mnt/steamlib/SteamLibrary
 set -euo pipefail
-U=${STEAM_LXC_USER:-steam}; LIB=${1:-/mnt/steamlib/SteamLibrary}
+LIB=${1:?usage: $0 <path to an existing SteamLibrary folder>}
+[ -r /etc/default/steam-lxc ] && . /etc/default/steam-lxc
+U=${STEAM_LXC_USER:-steam}
 H=$(getent passwd "$U" | cut -d: -f6); S="$H/.local/share/Steam"
 cid=$(awk -F'"' '/contentid/{print $4}' "$LIB/libraryfolder.vdf")
 apps=$(for m in "$LIB"/steamapps/appmanifest_*.acf; do id=${m##*_}; id=${id%.acf}; echo "			\"$id\"		\"0\""; done)

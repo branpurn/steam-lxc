@@ -1,19 +1,13 @@
--- steam-lxc: never expose HDR on any display (HDR caused artifacting on this panel + RTX 4080).
--- gamescope loads /etc/gamescope/scripts after its own scripts, and package updates don't touch /etc.
--- Without this, gamescope reads HDR support from the panel's EDID and Steam can turn HDR output on through the
--- GAMESCOPE_DISPLAY_HDR_ENABLED root property, even when --hdr-enabled isn't passed
--- (the log showed "xwm: HDR output enabled").
--- A known-display entry that has an `hdr` table overrides the EDID-derived HDR info.
+-- steam-lxc: with STEAM_LXC_DISABLE_HDR=1, never expose HDR on any display.
+-- Without this, gamescope reads HDR support from the EDID and Steam can switch HDR output on through the
+-- GAMESCOPE_DISPLAY_HDR_ENABLED root property even when --hdr-enabled isn't passed.
+-- A known-display entry with an `hdr` table overrides the EDID-derived HDR info. /etc survives package updates.
+if os.getenv("STEAM_LXC_DISABLE_HDR") ~= "1" then return end
 gamescope.config.known_displays.steam_lxc_no_hdr = {
     pretty_name = "steam-lxc (HDR disabled)",
-    hdr = {
-        supported = false,
-        force_enabled = false,
-        eotf = gamescope.eotf.gamma22,
-    },
+    hdr = { supported = false, force_enabled = false, eotf = gamescope.eotf.gamma22 },
     matches = function(display)
-        -- Low score: matches every display; a specific known-display script with a higher score still wins.
-        debug("[steam_lxc_no_hdr] matched vendor: "..tostring(display.vendor).." model: "..tostring(display.model))
+        -- Low score: matches every display; a more specific known-display script still wins.
         return 1
     end
 }

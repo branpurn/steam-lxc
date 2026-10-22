@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""steam-lxc escape hatch: Ctrl+Shift+Esc on any physical keyboard force-quits the running Steam game.
+
+gamescope (and kwin) own input, so this reads evdev directly as root, without grabbing: the keys still
+reach the session. Keyboards are rescanned every few seconds, so hotplug works. Kills only game process trees
+started by Steam's reaper ("reaper SteamLaunch AppId=..."), plus the session user's wineserver/wine processes:
+SIGTERM, then SIGKILL after GRACE seconds. Steam and gamescope are never touched.
+"""
+import os, select, signal, time, syslog
+import evdev
+from evdev import ecodes as e
+
+GRACE = float(os.environ.get("KILLER_GRACE", "4"))
+USER_UID = int(os.environ.get("KILLER_UID", "1000"))
+DEFAULT_MATCH = "reaper SteamLaunch AppId="
+MATCH = os.environ.get("KILLER_MATCH", DEFAULT_MATCH)  # testing: narrow to one AppId (also skips the wine sweep)
+CTRL = {e.KEY_LEFTCTRL, e.KEY_RIGHTCTRL}; SHIFT = {e.KEY_LEFTSHIFT, e.KEY_RIGHTSHIFT}
+WINE_NAMES = ("wineserver", "wine64-preloader", "wine-preloader", "winedevice.exe", "explorer.exe",
+              "services.exe", "plugplay.exe", "rpcss.exe", "svchost.exe", "tabtip.exe", "steam.exe")
+
+def log(msg): syslog.syslog(syslog.LOG_WARNING, msg)
+
+def procs():
+    out = {}
+    for d in os.listdir("/proc"):
+        if not d.isdigit(): continue
+        try:
+            with open(f"/proc/{d}/stat") as f: st = f.read()
+            comm = st[st.index("(")+1:st.rindex(")")]; ppid = int(st[st.rindex(")")+2:].split()[1])
+            with open(f"/proc/{d}/cmdline", "rb") as f: cmd = f.read().replace(b"\0", b" ").decode(errors="replace")
+            uid = os.stat(f"/proc/{d}").st_uid
+            out[int(d)] = (ppid, comm, cmd, uid)
+        except (OSError, ValueError): pass
+    return out
+
+def game_pids():
+    P = procs()
+    roots = [p for p, (_, _, cmd, uid) in P.items() if uid == USER_UID and MATCH in cmd]
+    pids, stack = set(roots), list(roots)
+    while stack:
+        cur = stack.pop()
+        for p, (pp, _, _, _) in P.items():
+            if pp == cur and p not in pids: pids.add(p); stack.append(p)
+    if roots and MATCH == DEFAULT_MATCH:  # wine helpers can reparent away from the reaper tree
+        pids |= {p for p, (_, comm, cmd, uid) in P.items() if uid == USER_UID and
+                 (comm in WINE_NAMES or cmd.split(" ")[0].endswith(".exe") or "\\steamapps\\" in cmd or ":\\" in cmd.split(" ")[0])}
+    keep = {p for p, (_, comm, _, _) in P.items() if comm in ("steam", "gamescope", "gamescope-wl", "Xwayland", "kwin_wayland", "plasmashell", "steamwebhelper")}
+    return roots, pids - keep
+
+def kill_game():
+    roots, pids = game_pids()
+    if not pids: log("escape hatch: no running game"); return
+    log(f"escape hatch: SIGTERM {len(pids)} game processes (reaper roots {roots})")
+    for p in pids:
+        try: os.kill(p, signal.SIGTERM)
+        except ProcessLookupError: pass
+    deadline = time.time() + GRACE
+    while time.time() < deadline and any(os.path.exists(f"/proc/{p}") for p in pids): time.sleep(0.2)
+    left = [p for p in pids if os.path.exists(f"/proc/{p}")]
+    if left: log(f"escape hatch: SIGKILL {len(left)} remaining")
+    for p in left:
+        try: os.kill(p, signal.SIGKILL)
+        except ProcessLookupError: pass
+
+def keyboards():
+    devs = {}
+    for path in evdev.list_devices():
+        try:
+            d = evdev.InputDevice(path); keys = d.capabilities().get(e.EV_KEY, [])
+            if e.KEY_ESC in keys and e.KEY_LEFTCTRL in keys: devs[d.fd] = d
+            else: d.close()
+        except OSError: pass
+    return devs
+
+def main():
+    syslog.openlog("steam-lxc-game-killer")
+    devs, pressed, last_scan, last_fire = keyboards(), {}, time.time(), 0.0
+    log(f"watching {len(devs)} keyboard(s): " + ", ".join(d.name for d in devs.values()))
+    while True:
+        if time.time() - last_scan > 5:
+            for d in devs.values(): d.close()
+            devs, last_scan = keyboards(), time.time(); pressed = {k: v for k, v in pressed.items() if k in devs}
+        r, _, _ = select.select(list(devs), [], [], 2)
+        for fd in r:
+            try: events = list(devs[fd].read())
+            except OSError: continue
+            s = pressed.setdefault(fd, set())
+            for ev in events:
+                if ev.type != e.EV_KEY: continue
+                if ev.value: s.add(ev.code)
+                else: s.discard(ev.code)
+                if ev.value == 1 and ev.code == e.KEY_ESC and s & CTRL and s & SHIFT and time.time() - last_fire > 2:
+                    last_fire = time.time(); log(f"Ctrl+Shift+Esc on {devs[fd].name}"); kill_game()
+
+if __name__ == "__main__":
+    main()

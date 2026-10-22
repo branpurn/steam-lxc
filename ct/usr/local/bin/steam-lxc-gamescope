@@ -1,9 +1,11 @@
 #!/bin/bash
-# gamescope wrapper (GAMESCOPE_BIN) for steam-lxc: adds the output refresh (-r), forces HDR flags off.
+# gamescope wrapper (GAMESCOPE_BIN): adds the output refresh (-r) and, with STEAM_LXC_DISABLE_HDR=1, strips HDR flags.
 # In embedded (DRM) mode -r selects the refresh of the preferred mode (with -W/-H); gamescope paces to it.
 args=()
 for a in "$@"; do
-  case "$a" in --hdr-enabled|--hdr-itm-enable|--hdr-debug-force-support|--hdr-debug-force-output) continue ;; esac
+  if [ "${STEAM_LXC_DISABLE_HDR:-0}" = 1 ]; then
+    case "$a" in --hdr-enabled|--hdr-itm-enable|--hdr-debug-force-support|--hdr-debug-force-output) continue ;; esac
+  fi
   args+=("$a")
 done
 [ -n "${GAMESCOPE_OUTPUT_REFRESH:-}" ] && args=(-r "$GAMESCOPE_OUTPUT_REFRESH" "${args[@]}")

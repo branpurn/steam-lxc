@@ -1,37 +1,26 @@
-# Raw LXC lines for the steam-lxc CT (same device set as the gaming-enclave CT).
-# nvidia-uvm / nvidia-caps majors are dynamic; enclave-gpu-prep.sh adds the current ones at pre-start.
+# Raw LXC lines for a steam-lxc CT: NVIDIA GPU, DRI card/render, input, uinput, sound, USB, ntsync, FUSE.
+# @GPU_CARD@/@GPU_RENDER@ are host paths (a stable udev symlink is best; see README). The nvidia-uvm/nvidia-caps
+# majors are dynamic; steam-lxc-gpu-prep.sh adds the current ones at pre-start.
 lxc.cgroup2.devices.allow: c 195:* rwm
 lxc.cgroup2.devices.allow: c 226:* rwm
 lxc.cgroup2.devices.allow: c 116:* rwm
 lxc.cgroup2.devices.allow: c 13:* rwm
+lxc.cgroup2.devices.allow: c 189:* rwm
 lxc.cgroup2.devices.allow: c 10:223 rwm
-lxc.cgroup2.devices.allow: c 234:* rwm
-lxc.cgroup2.devices.allow: c 235:* rwm
-lxc.cgroup2.devices.allow: c 506:* rwm
-lxc.cgroup2.devices.allow: c 505:* rwm
-lxc.cgroup2.devices.allow: c 510:* rwm
-lxc.cgroup2.devices.allow: c 511:* rwm
+lxc.cgroup2.devices.allow: c 10:229 rwm
+lxc.cgroup2.devices.allow: c 10:265 rwm
 lxc.mount.entry: /dev/nvidia0 dev/nvidia0 none bind,optional,create=file
 lxc.mount.entry: /dev/nvidiactl dev/nvidiactl none bind,optional,create=file
 lxc.mount.entry: /dev/nvidia-modeset dev/nvidia-modeset none bind,optional,create=file
 lxc.mount.entry: /dev/nvidia-uvm dev/nvidia-uvm none bind,optional,create=file
 lxc.mount.entry: /dev/nvidia-uvm-tools dev/nvidia-uvm-tools none bind,optional,create=file
 lxc.mount.entry: /dev/nvidia-caps dev/nvidia-caps none bind,optional,create=dir
-lxc.mount.entry: /dev/dri/enclave-gpu-card dev/dri/card1 none bind,optional,create=file
-lxc.mount.entry: /dev/dri/enclave-gpu-render dev/dri/renderD128 none bind,optional,create=file
+lxc.mount.entry: @GPU_CARD@ dev/dri/card1 none bind,optional,create=file
+lxc.mount.entry: @GPU_RENDER@ dev/dri/renderD128 none bind,optional,create=file
 lxc.mount.entry: /dev/snd dev/snd none bind,optional,create=dir
 lxc.mount.entry: /dev/input dev/input none bind,optional,create=dir
 lxc.mount.entry: /dev/uinput dev/uinput none bind,optional,create=file
 lxc.mount.entry: /run/udev mnt/host-udev none bind,ro,optional,create=dir
-lxc.cgroup2.devices.allow: c 189:* rwm
 lxc.mount.entry: /dev/bus/usb dev/bus/usb none bind,optional,create=dir
-lxc.cgroup2.devices.allow: c 10:242 rwm
-lxc.cgroup2.devices.allow: c 10:265 rwm
 lxc.mount.entry: /dev/ntsync dev/ntsync none bind,optional,create=file
-lxc.cgroup2.devices.allow: c 10:229 rwm
 lxc.mount.entry: /dev/fuse dev/fuse none bind,optional,create=file
-lxc.mount.entry: @STEAMLIB_HOST@ mnt/steamlib none bind,create=dir 0 0
-lxc.net.1.type: phys
-lxc.net.1.link: wlframehost
-lxc.net.1.name: wlframe0
-lxc.net.1.flags: up

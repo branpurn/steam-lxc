@@ -1,0 +1,30 @@
+# steam-lxc configuration. Copy to /etc/default/steam-lxc inside the CT (50-session.sh does this if it is missing)
+# and edit. Read by the session units, the gamescope session override, the gamescope Lua scripts and Desktop Mode.
+# Empty values mean "gamescope/Plasma default".
+
+# Session user (should own the Steam library; 35-user.sh creates it with UID 1000)
+STEAM_LXC_USER=steam
+
+# --- Game Mode output ---
+# gamescope --prefer-output list, e.g. "HDMI-A-1,*" (connector names: ls /sys/class/drm/)
+GAME_OUTPUT_CONNECTOR="*"
+# Output mode; empty = the panel's preferred mode. REFRESH needs WIDTH and HEIGHT.
+GAME_OUTPUT_WIDTH=
+GAME_OUTPUT_HEIGHT=
+GAME_OUTPUT_REFRESH=
+
+# --- Desktop Mode (Plasma) output, applied with kscreen-doctor at login; empty = KScreen's choice ---
+DESKTOP_OUTPUT=
+DESKTOP_MODE=
+DESKTOP_SCALE=
+# 1 = turn off every other connected output (e.g. a dummy plug) in Desktop Mode
+DESKTOP_DISABLE_OTHER_OUTPUTS=0
+
+# --- Options ---
+# 1 = never advertise or enable HDR (gamescope display script + session env + wrapper; Plasma HDR off)
+STEAM_LXC_DISABLE_HDR=0
+# 1 = NVIDIA workarounds enforced every frame: composite_force=1, adaptive_sync=0 (see NOTES.md)
+STEAM_LXC_NVIDIA_TWEAKS=0
+# Connectors to keep awake: if one is connected and its DPMS goes Off, ask gamescope to wake it. Empty = disabled.
+KEEPAWAKE_CONNECTORS=
+KEEPAWAKE_INTERVAL=10
