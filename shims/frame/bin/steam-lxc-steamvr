@@ -9,7 +9,35 @@ set -u
 [ "${FRAME_SHIM_STEAMVR_ALWAYS_ON:-0}" = 1 ] || { echo "FRAME_SHIM_STEAMVR_ALWAYS_ON is not 1; nothing to do"; exit 0; }
 DELAY=${FRAME_SHIM_STEAMVR_START_DELAY:-20}
 APPID=${FRAME_SHIM_STEAMVR_APPID:-250820}
+VRDIR=$(realpath -m "${FRAME_SHIM_STEAMVR_DIR:-${FRAME_SHIM_STEAM_ROOT:-$HOME/.local/share/Steam}/steamapps/common/SteamVR}")
 vr_up() { pgrep -u "$UID" -x vrserver >/dev/null; }
+
+# SteamVR helper processes left behind by a vrserver that died (Steam then still considers 250820 running, and
+# steam://run is a no-op). Matched precisely: our UID, exact comm, executable inside the SteamVR install. Never pkill -f.
+orphans() {
+    local p c exe
+    for p in $(pgrep -u "$UID" -x 'vrmonitor|vrdashboard|vrwebhelper|vrcompositor|vrstartup'); do
+        exe=$(readlink "/proc/$p/exe" 2>/dev/null) || continue
+        case "$exe" in "$VRDIR"/*) echo "$p" ;; esac
+    done
+}
+# Only while no vrserver runs, and only processes that stay orphaned across a 20 s grace period (a SteamVR that is
+# still starting up has vrserver within seconds).
+reap_orphans() {
+    vr_up && return 0
+    local a b p
+    a=$(orphans | sort); [ -n "$a" ] || return 0
+    sleep 20
+    vr_up && return 0
+    b=$(orphans | sort)
+    a=$(comm -12 <(echo "$a") <(echo "$b")); [ -n "$a" ] || return 0
+    echo "reaping orphaned SteamVR processes (no vrserver): $(for p in $a; do printf '%s(%s) ' "$(cat /proc/$p/comm 2>/dev/null)" "$p"; done)"
+    kill -TERM $a 2>/dev/null
+    for _ in 1 2 3 4 5 6 7 8 9 10; do sleep 1; b=$(for p in $a; do kill -0 "$p" 2>/dev/null && echo "$p"; done); [ -z "$b" ] && break; done
+    [ -n "$b" ] && kill -KILL $b 2>/dev/null
+    # Give Steam a moment to notice 250820 has ended.
+    sleep 10
+}
 
 # 1. Wait for the Steam client (steam.pid alive and steamwebhelper running).
 until pid=$(cat "$HOME/.steam/steam.pid" 2>/dev/null) && kill -0 "$pid" 2>/dev/null && pgrep -u "$UID" -x steamwebhelper >/dev/null; do
@@ -20,6 +48,7 @@ done
 if ! vr_up; then
     sleep "$DELAY"
     kill -0 "$pid" 2>/dev/null || exit 1
+    reap_orphans
     vr_up || {
         # The Steam client's own session environment (display, D-Bus) for the steam:// forwarder.
         envs=()
