@@ -7,5 +7,7 @@ export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
 [ -e /usr/lib/libdrm.so ] || echo "steamos-session: WARNING /usr/lib/libdrm.so missing" >&2
 # Audio: PipeWire user units (socket-activated); make sure they are up before Steam.
 systemctl --user start pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
+# gamescope-session-plus counts short sessions in this file and errors if it is missing
+touch /tmp/chimeraos-short-session-tracker
 # pam_systemd adds ambient caps; Steam's srt-bwrap refuses to run with them. Drop before exec.
 exec setpriv --inh-caps=-all --ambient-caps=-all /usr/share/gamescope-session-plus/gamescope-session-plus steam

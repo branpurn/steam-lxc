@@ -1,0 +1,17 @@
+#!/bin/bash
+# Keep the Game Mode panel on: if a watched, connected connector reports DPMS Off, ask gamescope to wake it
+# (gamescope-control display_sleep WAKE). Steam's idle display sleep can't be fully disabled before sign-in.
+# KEEPAWAKE_CONNECTORS: connector names as in /sys/class/drm/card*-<name> (default HDMI-A-2).
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-gamescope-0}
+C=${KEEPAWAKE_CONNECTORS:-HDMI-A-2}; INT=${KEEPAWAKE_INTERVAL:-10}
+while sleep "$INT"; do
+  for n in $C; do
+    for f in /sys/class/drm/card*-"$n"; do
+      [ -r "$f/dpms" ] || continue
+      if [ "$(cat "$f/status")" = connected ] && [ "$(cat "$f/dpms")" = Off ]; then
+        echo "keepawake: $n DPMS Off -> waking"
+        /usr/local/bin/gamescope-display-wake || echo "keepawake: wake request failed" >&2
+      fi
+    done
+  done
+done

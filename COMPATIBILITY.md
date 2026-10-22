@@ -11,9 +11,10 @@ CT: Arch Linux (archlinux-base 2026-04-20 template, updated 2026-10-21), gamesco
 | Valve repo DB signatures | `holo-3.9.db.sig` / `jupiter-3.9.db.sig` do not exist (404) | **verified** (hence DatabaseOptional) |
 | gamescope **embedded** (DRM/KMS) on NVIDIA inside a privileged LXC | libseat via logind works; selects HDMI-A-2, 3840x2160@60; DP dummy also detected | **verified** |
 | Steam Game Mode UI (`-gamepadui -steamos3`) under gamescope | Starts, bootstraps, shows the sign-in screen | **verified** |
-| Session restart on crash | `Restart=always` on steamos-session.service | unverified (configured) |
+| Session restart (`systemctl restart`) | old gamescope/Steam fully stopped (logind session terminated), exactly one gamescope afterwards | **verified** |
+| Display stays on when idle | sleep disabled in logind; keepawake wakes HDMI if DPMS goes Off | **verified** (forced sleep → On within 10 s); long idle unverified |
+| Steam login | signed in; kept across session restarts | **verified** |
 | VNC into Game Mode | x11vnc attached to the Steam Big Picture window (`-id`); root-window capture fails on rootless Xwayland | **verified** (port open, VNC auth required, capture works); 2nd Xwayland (games with `STEAM_MULTIPLE_XWAYLANDS`) is not captured |
-| Steam login | needs interactive login | unverified |
 | Shared Steam library (bind mount, pre-registered `libraryfolders.vdf`) | mounted, registered; Steam's acceptance after login not checked | unverified |
 | Native game (HL2:DM, app 320) | installed in the shared library | unverified |
 | Proton game | — | unverified |
