@@ -32,6 +32,16 @@ unless the toggle is 1. The script:
 Steam picks SteamVR's runtime (SteamLinuxRuntime_sniper, app 1628350, which Steam installs into any library). Running
 `bin/vrstartup.sh` directly outside Steam fails with `no steam runtime environment set, no sniper SLR found`.
 
+**Orphan cleanup:** if vrserver dies (crash or watchdog abort) but vrmonitor or other SteamVR helpers stay alive,
+Steam still considers 250820 running and `steam://run` does nothing. Before launching, the service reaps such orphans
+only when all of these hold:
+- no vrserver is running;
+- the process has the same UID, an exact comm (`vrmonitor`, `vrdashboard`, `vrwebhelper`, `vrcompositor`,
+  `vrstartup`) and an executable inside the SteamVR install;
+- it is still orphaned after a 20-second grace period.
+
+It sends TERM, then KILL. It never uses `pkill -f` and never touches anything while a vrserver is up.
+
 **Never kill a SteamVR you didn't start.** An earlier version stopped a "leftover" vrserver whose DISPLAY differed.
 That killed a Steam-launched SteamVR seconds after it started (`Lost master process … Quitting all`). The service
 now leaves an already-running SteamVR alone and only supervises it.
