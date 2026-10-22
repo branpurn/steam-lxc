@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Frame shim: classify Steam appids as VR / flat / unknown from Steam's appinfo cache (read-only).
+  steam-lxc-vrclass [--appinfo PATH] [--dump] APPID...
+Prints "<appid> <vr|flat|unknown|ignore> <reason>" per appid. Only "vr" keeps or starts SteamVR; "flat" and "unknown"
+both make it yield; "ignore" (SteamVR itself and its runtimes) changes nothing. Override lists come from
+/etc/default/steam-lxc (FRAME_SHIM_STEAMVR_YIELD_VR / _FLAT, space or comma separated); they win over appinfo.
+Source: <Steam root>/appcache/appinfo.vdf (binary, format 0x07564428 v28 or 0x07564429 v29), section appinfo.common:
+  openvrsupport / openxrsupport / onlyvrsupport ("1"), category.category_53 (VR Support) / category_54 (VR Only),
+  and common.type. Unknown fields, apps missing from the cache or an unreadable cache give "unknown".
+Checked against a real cache (v29): a flat game has none of these keys; a VR-optional game has openvrsupport and/or
+openxrsupport plus category_53; a VR-only game has onlyvrsupport + openvrsupport plus category_54; SteamVR (250820)
+is type Tool with category_53 and no *support keys."""
+import os, shlex, struct, sys
+
+IGNORE = {"250820", "1628350", "1009850", "250840", "323910"}  # SteamVR, sniper runtime, SteamVR beta/tools, SteamVR Home
+
+def conf(path="/etc/default/steam-lxc"):
+    out = {}
+    try:
+        for line in open(path):
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                try: v = " ".join(shlex.split(v))
+                except ValueError: pass
+                out[k.strip()] = v
+    except FileNotFoundError: pass
+    return out
+
+def ids(s): return {x for x in s.replace(",", " ").split() if x.isdigit()}
+
+def _cstr(b, i):
+    j = b.index(b"\0", i); return b[i:j].decode("utf-8", "replace"), j + 1
+
+def _kv(b, i, strings):
+    """Parse a binary KeyValues block starting at i; returns (dict, new_i)."""
+    d = {}
+    while True:
+        t = b[i]; i += 1
+        if t == 8: return d, i
+        if strings is not None:
+            k = strings[struct.unpack_from("<I", b, i)[0]]; i += 4
+        else:
+            k, i = _cstr(b, i)
+        if t == 0: v, i = _kv(b, i, strings)
+        elif t == 1: v, i = _cstr(b, i)
+        elif t in (2, 4, 6): v = struct.unpack_from("<i", b, i)[0]; i += 4
+        elif t == 3: v = struct.unpack_from("<f", b, i)[0]; i += 4
+        elif t in (7, 10): v = struct.unpack_from("<Q", b, i)[0]; i += 8
+        else: raise ValueError(f"unknown kv type {t}")
+        d[k] = v
+
+def read_appinfo(path, want):
+    """Return {appid(str): appinfo dict} for the wanted appids (all if want is None)."""
+    b = open(path, "rb").read()
+    magic, _universe = struct.unpack_from("<II", b, 0)
+    i = 8; strings = None
+    if magic == 0x07564429:
+        off = struct.unpack_from("<q", b, i)[0]; i += 8
+        n = struct.unpack_from("<I", b, off)[0]; j = off + 4; strings = []
+        for _ in range(n):
+            s, j = _cstr(b, j); strings.append(s)
+    elif magic != 0x07564428:
+        raise ValueError(f"unsupported appinfo magic {magic:#x}")
+    out = {}
+    while True:
+        appid = struct.unpack_from("<I", b, i)[0]
+        if appid == 0: break
+        size = struct.unpack_from("<I", b, i + 4)[0]
+        start = i + 8; end = start + size
+        if want is None or str(appid) in want:
+            body = start + 4 + 4 + 8 + 20 + 4 + 20   # infostate, last_updated, token, sha1, change, binary sha1
+            d, _ = _kv(b, body, strings)
+            out[str(appid)] = d.get("appinfo", d)
+        i = end
+    return out
+
+def truthy(v): return str(v).strip() not in ("", "0", "false", "False")
+
+def classify(appid, info, vr_list=(), flat_list=()):
+    if appid in vr_list: return "vr", "override list FRAME_SHIM_STEAMVR_YIELD_VR"
+    if appid in flat_list: return "flat", "override list FRAME_SHIM_STEAMVR_YIELD_FLAT"
+    if appid in IGNORE: return "ignore", "SteamVR / runtime appid"
+    if not info: return "unknown", "not in appinfo cache"
+    c = info.get("common") or {}
+    if not isinstance(c, dict) or not c: return "unknown", "no common section"
+    vrf = [k for k in ("onlyvrsupport", "openvrsupport", "openxrsupport") if truthy(c.get(k, ""))]
+    cat = c.get("category") or {}
+    cats = [k for k in ("category_53", "category_54") if isinstance(cat, dict) and truthy(cat.get(k, ""))]
+    if vrf or cats: return "vr", "common." + ",".join(vrf + ["category." + x for x in cats])
+    if str(c.get("type", "")).lower() == "game": return "flat", "common.type=game, no VR fields"
+    return "unknown", f"common.type={c.get('type', '')!r}, no VR fields"
+
+def main(argv):
+    path = None; dump = False; apps = []
+    a = iter(argv)
+    for x in a:
+        if x == "--appinfo": path = next(a)
+        elif x == "--dump": dump = True
+        else: apps.append(x)
+    C = conf(os.environ.get("STEAM_LXC_DEFAULTS", "/etc/default/steam-lxc"))
+    root = C.get("FRAME_SHIM_STEAM_ROOT") or os.path.expanduser("~/.local/share/Steam")
+    path = path or os.path.join(root, "appcache", "appinfo.vdf")
+    try: infos = read_appinfo(path, set(apps))
+    except Exception as e:
+        print(f"appinfo unreadable ({type(e).__name__}: {e})", file=sys.stderr); infos = {}
+    vrl, fll = ids(C.get("FRAME_SHIM_STEAMVR_YIELD_VR", "")), ids(C.get("FRAME_SHIM_STEAMVR_YIELD_FLAT", ""))
+    for app in apps:
+        info = infos.get(app)
+        if dump:
+            c = (info or {}).get("common") or {}
+            keys = {k: c.get(k) for k in ("type", "name", "openvrsupport", "openxrsupport", "onlyvrsupport", "controllervr") if k in c}
+            cat = c.get("category") or {}
+            keys["category"] = sorted(k for k in cat if k in ("category_53", "category_54")) if isinstance(cat, dict) else cat
+            keys["vr_like_keys"] = sorted(k for k in c if "vr" in k.lower() or "xr" in k.lower())
+            print(app, keys)
+        k, why = classify(app, info, vrl, fll)
+        print(app, k, why)
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

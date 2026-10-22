@@ -9,9 +9,11 @@ LIB=/usr/local/lib/steam-lxc/frame
 
 # Always installed (inert unless toggled): helper scripts and the user unit.
 install -d "$LIB"
-install -m 755 bin/steam-lxc-steamvr bin/vrsettings-merge bin/steamvr-setcap "$LIB/"
+install -m 755 bin/steam-lxc-steamvr bin/vrsettings-merge bin/steamvr-setcap \
+    bin/steam-lxc-steamvr-yield bin/steam-lxc-vrclass bin/steam-lxc-flat "$LIB/"
+install -m 644 lib/frame-yield.sh lib/frame-streamres.sh "$LIB/"
 install -m 644 systemd/steam-lxc-steamvr-setcap.path systemd/steam-lxc-steamvr-setcap.service /etc/systemd/system/
-install -m 644 systemd-user/steam-lxc-steamvr.service /etc/systemd/user/steam-lxc-steamvr.service
+install -m 644 systemd-user/steam-lxc-steamvr.service systemd-user/steam-lxc-steamvr-yield.service /etc/systemd/user/
 
 # 1. Always-on SteamVR: enable for the Steam user (takes effect at its next login, or after the steps in README).
 WANTS=$(getent passwd "$U" | cut -d: -f6)/.config/systemd/user/default.target.wants
@@ -21,6 +23,13 @@ if [ "${FRAME_SHIM_STEAMVR_ALWAYS_ON:-0}" = 1 ]; then
     echo "steamvr: enabled for $U (not started)"
 else
     rm -f "$WANTS/steam-lxc-steamvr.service"
+fi
+# 1b. SteamVR yields to non-VR games (needs 1). Enabled only; never started here.
+if [ "${FRAME_SHIM_STEAMVR_ALWAYS_ON:-0}" = 1 ] && [ "${FRAME_SHIM_STEAMVR_YIELD:-0}" = 1 ]; then
+    ln -sfn /etc/systemd/user/steam-lxc-steamvr-yield.service "$WANTS/steam-lxc-steamvr-yield.service"
+    echo "steamvr-yield: enabled for $U (not started)"
+else
+    rm -f "$WANTS/steam-lxc-steamvr-yield.service"
 fi
 
 # 2. LastKnown seeding: only when SteamVR is not running (the helper checks and makes a backup).

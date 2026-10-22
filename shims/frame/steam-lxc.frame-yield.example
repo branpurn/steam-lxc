@@ -1,0 +1,18 @@
+# Frame shim: "SteamVR yields to non-VR games" settings. Append to /etc/default/steam-lxc (all inert unless
+# FRAME_SHIM_STEAMVR_ALWAYS_ON=1 and FRAME_SHIM_STEAMVR_YIELD=1). Pending better Steam Frame support in SteamOS.
+# 1 = run steam-lxc-steamvr-yield: a confirmed VR game starts SteamVR at once; any other game (flat or unknown) stops it
+FRAME_SHIM_STEAMVR_YIELD=0
+# Appids that always count as non-VR / as VR (space or comma separated); they win over Steam's appinfo. Examples only.
+FRAME_SHIM_STEAMVR_YIELD_FLAT=
+FRAME_SHIM_STEAMVR_YIELD_VR=
+# Seconds after the last non-VR game exits before SteamVR is started again
+FRAME_SHIM_STEAMVR_RESUME_DELAY=15
+# Optional extra command tried before SIGTERM to vrserver when stopping SteamVR (none is known to work on Linux)
+FRAME_SHIM_STEAMVR_YIELD_QUIT_CMD=
+# gamescope output mode while a non-VR game streams to the Frame (desktop stream live): WxH or WxH@Hz, empty = off.
+# Default 1920x1080 (matches the Frame's capture request; avoids the top-left crop). Not used for plain HDMI play.
+FRAME_SHIM_FLAT_STREAM_RES=1920x1080
+# Refresh rate used when FRAME_SHIM_FLAT_STREAM_RES has no @Hz
+FRAME_SHIM_FLAT_STREAM_HZ=60
+# Optional: gamescope's "<Make> <Model>" of the HDMI display, if gamescopectl cannot report it
+FRAME_SHIM_FLAT_STREAM_DISPLAY=
