@@ -56,3 +56,4 @@ FRAME_SHIM_RTKIT=0
 # 1 = let NetworkManager manage the Steam Frame Wireless Adapter interface (and nothing else)
 FRAME_SHIM_DONGLE_NM=0
 FRAME_DONGLE_IFACE=wlframe0
+# SteamVR yields to non-VR games (+ 1080p flat stream): see shims/frame/steam-lxc.frame-yield.example
