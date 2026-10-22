@@ -116,3 +116,29 @@
 Next things to try, in order: `GAMESCOPE_DISABLE_EXPLICIT_SYNC=1` (session-plus already ships the handling script);
 updating the host driver to 615.78 (this needs a host kernel-module change and a re-run of `20-nvidia-hostmatched.sh`
 in both CTs); Valve's gamescope build from jupiter-3.9; a different refresh rate (60 or 144 Hz) to rule out the HDMI FRL link.
+
+## Desktop Mode (SteamOS-style session switching)
+- **Plasma is Wayland only here.** Arch's Plasma 6.8 no longer ships an X11 session (no `kwin-x11`). Valve's
+  holo-3.9 `plasma-x11-session` is 6.7.3 and needs a matching `kwin-x11`/`plasma-workspace` 6.7, which would mean
+  downgrading Arch's Plasma to Valve's builds, so it isn't used. Desktop Mode is `startplasma-wayland` (Arch 6.8.1) under
+  `dbus-run-session`, with `startkderc systemdBoot=false` so the whole desktop stays in the logind session that
+  `session-cleanup.sh` stops.
+- **Switching:** Steam's "Switch to Desktop" calls `/usr/bin/steamos-session-select plasma` (from gamescope-session-steam).
+  That script execs the unowned hook `/usr/libexec/os-session-select`, which starts `steam-lxc-switch@desktop.service`.
+  A polkit rule lets the steam user start only `steam-lxc-switch@*`. The switch unit starts `steamos-desktop-session.service`;
+  it Conflicts with `steamos-session.service`, so Game Mode is stopped first and its cleanup runs.
+  "Return to Gaming Mode" (desktop icon and app menu) runs `steamos-session-select gamescope`. `steamosctl switch-to-desktop-mode`
+  and `switch-to-game-mode` do the same. The desktop unit is not enabled, so boot always lands in Game Mode, and
+  `OnFailure=` sends a crashed desktop back to Game Mode.
+- **Display in Desktop Mode:** `steam-lxc-desktop-display` (Plasma autostart) runs kscreen-doctor to set HDMI-A-2 to 3840x2160@120
+  (the panel reports 119.88, the same mode gamescope labels 120), scale 2, HDR and WCG disabled, and turns the DP dummy off.
+  Steam autostarts in the desktop (caps dropped) and stays signed in.
+- **Verified:** two full game→desktop→game cycles plus a `pct reboot` into Game Mode, then desktop→game again. Each time there was
+  exactly one compositor (gamescope or kwin_wayland), one seat0 session, HDMI DPMS On, `hdr=1` count 0, and Steam signed in.
+  This used the same command Steam runs (`steamos-session-select plasma|gamescope`); the Steam button itself was not clicked.
+- **Not working: VNC in Desktop Mode.** x11vnc can't capture a Wayland session. krfb waits on the xdg-desktop-portal
+  RemoteDesktop consent, which shows on the panel; pre-seeding the `kde-authorized/remote-desktop` permission did not
+  make it listen. VNC on 5900 works in Game Mode only. Options: approve the krfb portal dialog on the panel, or KRDP
+  (RDP with H.264; works with native RDP clients, not with Guacamole).
+- **The NVIDIA `.run` userland installs its own `libOpenCL.so.1`**, which conflicts with `ocl-icd` (a Plasma dependency).
+  Install with `--overwrite "/usr/lib/libOpenCL.so*"` so `ocl-icd` owns the loader.

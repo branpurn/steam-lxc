@@ -30,5 +30,6 @@ CT: Arch Linux (archlinux-base 2026-04-20 template, updated 2026-10-21), gamesco
 | VRR (adaptive_sync) | forced off by gamescope script; VRR feedback 0 | **verified** off |
 | composite_force | forced on by gamescope script (Steam flips it; reverted) | **verified** |
 | HDMI artifacting on NVIDIA | persists per user report with HDR off; candidates in NOTES.md | open |
-| Desktop mode ("Switch to Desktop") | not installed | not implemented |
+| Desktop Mode (Plasma 6.8 Wayland) + switching both ways | via steamos-session-select hook; 4K@119.88, HDR off | **verified** (command path; Steam button not clicked) |
+| VNC in Desktop Mode | krfb waits on portal consent; x11vnc can't capture Wayland | **not working** |
 | Mutual exclusion with the other GPU CT | `pct start` of the other CT is refused while this one runs | **verified** |

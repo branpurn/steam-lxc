@@ -1,0 +1,8 @@
+#!/bin/bash
+# Root side of the session switch. Usage: switch-session game|desktop
+# The two session units Conflict, so starting one stops the other (its ExecStopPost cleanup runs first).
+case "$1" in
+  desktop) exec systemctl start steamos-desktop-session.service ;;
+  game)    exec systemctl start steamos-session.service ;;
+  *) echo "usage: $0 game|desktop" >&2; exit 2 ;;
+esac

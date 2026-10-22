@@ -1,0 +1,4 @@
+[Desktop Entry]
+Type=Application
+Name=Steam
+Exec=setpriv --inh-caps=-all --ambient-caps=-all /usr/bin/steam -silent

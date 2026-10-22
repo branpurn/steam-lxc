@@ -15,7 +15,7 @@ HDMI panel with Steam's Game Mode UI (sign-in screen verified). Steam login, gam
 | Read-only A/B root image, `steamos-atomupd` | Normal mutable Arch root; `pct snapshot` before every `pacman -Syu` ([ct/install/update.sh](ct/install/update.sh)) |
 | Valve `gamescope`, Mesa/RADV (AMD) | Arch `extra/gamescope`, NVIDIA proprietary userland pinned to the host kernel module |
 | `gamescope-session` from `steamos-customizations` + `steam-jupiter-stable` | AUR `gamescope-session-git` + `gamescope-session-steam-git` (OpenGamingCollective) + Arch `steam` |
-| logind seat with real VTs; "Switch to Desktop" goes to Plasma | logind seat without VTs; session is a system unit with `PAMName=login`. No desktop mode (yet) |
+| logind seat with real VTs; "Switch to Desktop" goes to Plasma | logind seat without VTs; sessions are system units with `PAMName=login`. Desktop Mode is Plasma 6.8 **Wayland** (Arch dropped X11 Plasma), switched via the steamos-session-select hook |
 | Everything from Valve's repos | Arch repos first; Valve repos listed after them and only named packages installed (holo-keyring, holo-grant-cap-sys-nice, xdg-desktop-portal-holo), signatures enforced |
 
 ## Layout

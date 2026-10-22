@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=steam-lxc display setup
+Exec=/usr/local/bin/steam-lxc-desktop-display
+X-KDE-autostart-phase=2

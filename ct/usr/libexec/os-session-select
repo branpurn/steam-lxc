@@ -1,0 +1,11 @@
+#!/bin/bash
+# steam-lxc session switch, called by gamescope-session-steam's /usr/bin/steamos-session-select (Steam's
+# "Switch to Desktop" -> "plasma", the desktop shortcut -> "gamescope"). Not owned by any package.
+# Hands the switch to a root service so it survives this session being torn down.
+case "${1:-}" in
+  plasma*|desktop) t=desktop ;;
+  gamescope|game*|"") t=game ;;
+  *) echo "os-session-select: unknown session '$1'" >&2; exit 1 ;;
+esac
+logger -t steam-lxc "session switch requested: $1 -> $t"
+exec systemctl start --no-block "steam-lxc-switch@$t.service"
