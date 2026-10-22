@@ -27,9 +27,17 @@ if [ "${FRAME_SHIM_STEAMVR_QUIET:-0}" = 1 ] && ! pgrep -u "$UID" -x vrserver >/d
     /usr/local/lib/steam-lxc/frame/vrsettings-merge quiet || true
 fi
 
+stop_vr() { pkill -u "$UID" -x 'vrmonitor|vrserver|vrcompositor|vrdashboard|vrwebhelper|vrstartup' 2>/dev/null; sleep 3; }
+# A SteamVR left over from a previous session (another Steam/display) is stopped so it restarts bound to this one.
+if pgrep -u "$UID" -x vrserver >/dev/null && ! tr '\0' '\n' < "/proc/$(pgrep -u "$UID" -x vrserver | head -1)/environ" 2>/dev/null \
+        | grep -qx "DISPLAY=${DISPLAY:-}"; then
+    stop_vr
+fi
 pgrep -u "$UID" -x vrserver >/dev/null || "$START" >/dev/null 2>&1 &
-# 4. Supervise: exit non-zero when vrserver goes away so Restart=on-failure brings it back.
+# 4. Supervise. The user manager lingers across Game Mode <-> Desktop Mode switches, so SteamVR is not killed with the
+# session: when the Steam client we bound to exits, stop SteamVR and exit non-zero; systemd restarts us, we wait for the
+# next session's Steam and start SteamVR on its display. Also exit non-zero if vrserver dies (Restart=on-failure).
 sleep 30
-while pgrep -u "$UID" -x vrserver >/dev/null; do sleep 10; done
-echo "vrserver exited" >&2
+while kill -0 "$pid" 2>/dev/null && pgrep -u "$UID" -x vrserver >/dev/null; do sleep 5; done
+if kill -0 "$pid" 2>/dev/null; then echo "vrserver exited" >&2; else echo "Steam exited (session switch?); stopping SteamVR" >&2; stop_vr; fi
 exit 1

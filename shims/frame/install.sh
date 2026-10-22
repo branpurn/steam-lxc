@@ -37,10 +37,10 @@ fi
 
 # 4. setcap vrcompositor-launcher: only when the CT's bounding set has CAP_SYS_NICE + CAP_SETFCAP (helper checks).
 if [ "${FRAME_SHIM_STEAMVR_SETCAP:-0}" = 1 ]; then
-    "$LIB/steamvr-setcap" && systemctl enable steam-lxc-steamvr-setcap.path >/dev/null 2>&1 \
+    "$LIB/steamvr-setcap" && systemctl enable steam-lxc-steamvr-setcap.path steam-lxc-steamvr-setcap.service >/dev/null 2>&1 \
         && echo "setcap: applied; re-apply path unit enabled (starts at next boot or 'systemctl start steam-lxc-steamvr-setcap.path')"
 else
-    systemctl disable steam-lxc-steamvr-setcap.path >/dev/null 2>&1 || true
+    systemctl disable steam-lxc-steamvr-setcap.path steam-lxc-steamvr-setcap.service >/dev/null 2>&1 || true
 fi
 
 # 5. Frame Wireless Adapter: NetworkManager owns only the dongle interface.
