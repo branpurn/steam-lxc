@@ -3,6 +3,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cp -r etc usr / 
+rm -rf /etc/skel-steam-lxc
+# Desktop Mode user files (autostart: display setup + Steam; 'Return to Gaming Mode' on the desktop)
+U=${STEAM_LXC_USER:-steam}; H=$(getent passwd "$U" | cut -d: -f6)
+cp -rT etc/skel-steam-lxc "$H"; chown -R "$U:$U" "$H/.config/autostart" "$H/Desktop"
+chmod +x /usr/libexec/os-session-select
 chmod +x /usr/local/bin/* /usr/local/lib/steam-lxc/*
 pacman -S --noconfirm --needed wayland >/dev/null
 bash src/gamescope-display-wake/build.sh

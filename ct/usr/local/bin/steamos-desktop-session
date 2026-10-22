@@ -1,0 +1,11 @@
+#!/bin/bash
+# steam-lxc Desktop Mode: KDE Plasma (Wayland) on the GPU's HDMI panel, as the session user.
+# Plasma 6.8 on Arch has no X11 session any more (kwin-x11 was dropped), so this is Wayland.
+export XDG_RUNTIME_DIR=/run/user/$(id -u) XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE XDG_SESSION_DESKTOP=KDE
+export KWIN_DRM_DEVICES=/dev/dri/card1 LANG=${LANG:-en_US.UTF-8}
+# Classic (non-systemd) Plasma startup, so the whole desktop stays in this logind session and session-cleanup.sh can
+# stop it. With systemd boot, Plasma would run inside the user manager and survive a switch.
+kwriteconfig6 --file startkderc --group General --key systemdBoot false
+systemctl --user start pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
+# pam_systemd adds ambient caps; Steam's srt-bwrap refuses to run with them. Drop before exec.
+exec setpriv --inh-caps=-all --ambient-caps=-all dbus-run-session -- startplasma-wayland

@@ -1,0 +1,19 @@
+[Unit]
+Description=steam-lxc Desktop Mode session (KDE Plasma Wayland)
+After=systemd-user-sessions.service host-udev-db.service steam-lxc-dev-acl.service
+Conflicts=steamos-session.service
+# If the desktop dies, go back to Game Mode rather than leaving a black panel.
+OnFailure=steamos-session.service
+[Service]
+User=steam
+Group=steam
+SupplementaryGroups=video render input audio
+PAMName=login
+Environment=XDG_SEAT=seat0 XDG_SESSION_CLASS=user XDG_SESSION_TYPE=wayland
+ExecStartPre=+/usr/local/lib/steam-lxc/session-cleanup.sh
+ExecStartPre=+/usr/local/lib/steam-lxc/dev-acl.sh
+ExecStart=/usr/local/bin/steamos-desktop-session
+ExecStopPost=+/usr/local/lib/steam-lxc/session-cleanup.sh
+TimeoutStopSec=20
+Restart=no
+# Not enabled: Game Mode stays the boot default.

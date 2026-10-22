@@ -1,0 +1,10 @@
+#!/bin/bash
+# Desktop Mode display setup (Plasma autostart): HDMI panel 3840x2160@120, scale 2, HDR/WCG off; DP dummy off while
+# HDMI is connected. Persisted by KScreen too, but re-applied every login so updates can't drift it.
+sleep 4
+O=${DESKTOP_OUTPUT:-HDMI-A-2}; M=${DESKTOP_MODE:-3840x2160@120}; S=${DESKTOP_SCALE:-2}
+args=(output.$O.enable output.$O.mode.$M output.$O.scale.$S output.$O.hdr.disable output.$O.wcg.disable output.$O.priority.1)
+for d in $(kscreen-doctor -o 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | awk '/^Output:/{print $3}'); do
+  [ "$d" = "$O" ] || args+=(output.$d.disable)
+done
+kscreen-doctor "${args[@]}" 2>&1 | logger -t steam-lxc-desktop-display

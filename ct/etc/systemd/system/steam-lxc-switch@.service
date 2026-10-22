@@ -1,0 +1,5 @@
+[Unit]
+Description=steam-lxc: switch to %i mode
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/steam-lxc/switch-session %i
