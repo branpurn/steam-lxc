@@ -1,0 +1,20 @@
+#!/bin/bash
+# Frame shim: give vrcompositor-launcher cap_sys_nice=eip so vrsetup.sh sees "setup complete" and shows no superuser
+# prompt. As root inside the CT. Refuses unless CAP_SYS_NICE and CAP_SETFCAP are in this CT's bounding set
+# (see host/lxc-caps-archlinux.conf.example); otherwise the capability makes the binary unexecutable (SteamVR -201).
+set -e
+[ -r /etc/default/steam-lxc ] && . /etc/default/steam-lxc
+[ "${FRAME_SHIM_STEAMVR_SETCAP:-0}" = 1 ] || { echo "FRAME_SHIM_STEAMVR_SETCAP is not 1; nothing to do"; exit 0; }
+U=${STEAM_LXC_USER:-steam}
+ROOT=${FRAME_SHIM_STEAM_ROOT:-$(getent passwd "$U" | cut -d: -f6)/.local/share/Steam}
+L=${FRAME_SHIM_STEAMVR_DIR:-$ROOT/steamapps/common/SteamVR}/bin/linux64/vrcompositor-launcher
+[ -f "$L" ] || { echo "no $L"; exit 0; }
+bnd=$((16#$(awk '/^CapBnd/{print $2}' /proc/self/status)))
+if (( !(bnd >> 23 & 1) || !(bnd >> 31 & 1) )); then
+    echo "CAP_SYS_NICE/CAP_SETFCAP not in the bounding set; refusing (exec would fail with EPERM, SteamVR -201)" >&2
+    getcap "$L" | grep -q cap_sys_nice && setcap -r "$L" && echo "removed unsafe capability from $L" >&2
+    exit 1
+fi
+getcap "$L" | grep -q cap_sys_nice && { echo "already set"; exit 0; }
+setcap cap_sys_nice=eip "$L"
+getcap "$L"

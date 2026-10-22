@@ -11,6 +11,7 @@ stops or restarts Steam, gamescope, SteamVR or the session.
 |---|---|---|
 | Always-on SteamVR | `FRAME_SHIM_STEAMVR_ALWAYS_ON`, `FRAME_SHIM_STEAMVR_START_DELAY`, `FRAME_SHIM_STEAMVR_QUIET` | `systemd-user/steam-lxc-steamvr.service`, `bin/steam-lxc-steamvr` |
 | Headset record seeding | `FRAME_SHIM_LASTKNOWN_SEED`, `FRAME_LASTKNOWN_*` | `bin/vrsettings-merge` |
+| setcap compositor | `FRAME_SHIM_STEAMVR_SETCAP` | `bin/steamvr-setcap`, `systemd/steam-lxc-steamvr-setcap.*`, `host/` |
 | rtkit | `FRAME_SHIM_RTKIT` | (pacman package) |
 | Frame Wireless Adapter | `FRAME_SHIM_DONGLE_NM`, `FRAME_DONGLE_IFACE` | `dongle/` |
 
@@ -69,15 +70,34 @@ SteamVR asks for realtime thread priorities over D-Bus. Without rtkit it logs
   update.
 - Processes that are already running only benefit the next time SteamVR starts.
 
-## 4. Do NOT setcap vrcompositor-launcher (lesson)
-`setcap cap_sys_nice=eip .../bin/linux64/vrcompositor-launcher` (what SteamVR's first-run prompt does) breaks it in
-this setup. Steam's runtime (pressure-vessel / no_new_privs) can no longer exec a file-capability binary:
-`Operation not permitted`, and SteamVR error **-201**. Remove it again with `setcap -r`.
+## 4. setcap on vrcompositor-launcher: only after fixing the CT's capability bounding set
+SteamVR's `vrsetup.sh` runs at every start. It relaunches itself outside pressure-vessel through the Steam launcher
+service and checks `getcap vrcompositor-launcher` for `cap_sys_nice`. If that is missing, it tries
+`holo-grant-cap-sys-nice`, then `pkexec setcap CAP_SYS_NICE=eip` (the zenity/superuser prompt). So unattended
+always-on SteamVR needs the capability to be present.
 
-**Open item:** without the capability, SteamVR shows a superuser prompt ("SteamVR requires superuser access to
-finish setup") at start. No documented SteamVR setting to suppress it was found. Dismissing it leaves the
-compositor at normal priority (rtkit, piece 3, covers part of that). Do not apply any workaround live without testing
-it on a spare CT first.
+**Root cause of the earlier failure (`Operation not permitted`, SteamVR -201):**
+- Proxmox `ostype: archlinux` includes `/usr/share/lxc/config/archlinux.common.conf`. That file runs
+  `lxc.cap.drop = setfcap sys_nice sys_pacct sys_rawio`, so every process in the CT has a bounding set without
+  CAP_SYS_NICE (bit 23) and CAP_SETFCAP (bit 31). For example `CapBnd: 000001fc7d6cffff`.
+- On exec of a file whose capabilities have the effective bit set, the kernel requires that all of the file's
+  permitted capabilities end up in the new permitted set. With CAP_SYS_NICE outside the bounding set, it cannot, so
+  `execve` returns EPERM. No AppArmor, nosuid or NoNewPrivs is involved: the Steam launcher service runs with
+  `NoNewPrivs: 0`.
+- The same missing CAP_SETFCAP is why `vrsetup.sh` logs `unable to set CAP_SETFCAP effective capability`.
+- It is also why systemd units with `PrivateUsers=yes` (upower) fail with `Failed to set up user namespacing`:
+  mapping uid 0 in a new user namespace needs CAP_SETFCAP.
+- Containers with `ostype: debian` do not drop these capabilities, which is why setcap worked there.
+
+**Fix:**
+1. On the host, add `host/lxc-caps-archlinux.conf.example` to the CT config and restart the CT.
+2. Set `FRAME_SHIM_STEAMVR_SETCAP=1` and run `install.sh`.
+   - `bin/steamvr-setcap` refuses (and strips an unsafe capability) unless both capabilities are in the bounding set.
+   - `steam-lxc-steamvr-setcap.path` re-applies the capability when a SteamVR update replaces the binary.
+
+Never setcap the launcher while the bounding set still lacks CAP_SYS_NICE: that makes it unexecutable (-201).
+Giving the CT these two capabilities back slightly widens what root inside a privileged CT can do (realtime
+priorities, setting file capabilities). It matches Proxmox's non-Arch default.
 
 ## 5. Steam Frame Wireless Adapter (dongle)
 The Frame pairs through its USB Wi-Fi adapter. The current out-of-tree driver (rtw89 8852CU family) is **temporary**:

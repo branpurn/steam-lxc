@@ -1,0 +1,15 @@
+#!/bin/bash
+# As the session user: Desktop Mode behaves like a TV, with no dimming, no display power-off, no suspend and no
+# lock screen. Idempotent. --notify lets a running Plasma pick the change up where it supports that.
+[ -r /etc/default/steam-lxc ] && . /etc/default/steam-lxc
+[ "${STEAM_LXC_DESKTOP_NO_IDLE:-1}" = 1 ] || exit 0
+w() { kwriteconfig6 --notify --file "$1" --group "$2" ${3:+--group "$3"} --key "$4" "$5"; }
+for p in AC Battery LowBattery; do
+    w powerdevilrc "$p" Display DimDisplayWhenIdle false
+    w powerdevilrc "$p" Display TurnOffDisplayWhenIdle false
+    w powerdevilrc "$p" Display LockBeforeTurnOffDisplay false
+    w powerdevilrc "$p" SuspendAndShutdown AutoSuspendAction 0
+done
+w kscreenlockerrc Daemon "" Autolock false
+w kscreenlockerrc Daemon "" LockOnResume false
+w kscreenlockerrc Daemon "" Timeout 0

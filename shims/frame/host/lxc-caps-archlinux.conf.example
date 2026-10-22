@@ -1,0 +1,8 @@
+# Host side, append to /etc/pve/lxc/<ctid>.conf (needs a CT restart). Only for ostype: archlinux.
+# /usr/share/lxc/config/archlinux.common.conf drops "setfcap sys_nice sys_pacct sys_rawio" from the bounding set, on
+# top of common.conf's "mac_admin mac_override sys_time sys_module sys_rawio". Without CAP_SYS_NICE in the bounding set,
+# exec of a file with cap_sys_nice=eip fails with EPERM (SteamVR -201); without CAP_SETFCAP, vrsetup.sh cannot setcap
+# and systemd PrivateUsers= units (upower) fail. An empty lxc.cap.drop clears the list; then re-add the common drops.
+# Proxmox writes these raw keys after the lxc.include lines, so they win.
+lxc.cap.drop:
+lxc.cap.drop: mac_admin mac_override sys_time sys_module sys_rawio sys_pacct

@@ -1,0 +1,9 @@
+[Unit]
+Description=steam-lxc Frame shim: re-apply cap_sys_nice after SteamVR updates
+
+[Path]
+# Path is fixed for the default user/library; adjust with a drop-in if yours differs.
+PathChanged=/home/steam/.local/share/Steam/steamapps/common/SteamVR/bin/linux64/vrcompositor-launcher
+
+[Install]
+WantedBy=multi-user.target

@@ -9,7 +9,8 @@ LIB=/usr/local/lib/steam-lxc/frame
 
 # Always installed (inert unless toggled): helper scripts and the user unit.
 install -d "$LIB"
-install -m 755 bin/steam-lxc-steamvr bin/vrsettings-merge "$LIB/"
+install -m 755 bin/steam-lxc-steamvr bin/vrsettings-merge bin/steamvr-setcap "$LIB/"
+install -m 644 systemd/steam-lxc-steamvr-setcap.path systemd/steam-lxc-steamvr-setcap.service /etc/systemd/system/
 install -m 644 systemd-user/steam-lxc-steamvr.service /etc/systemd/user/steam-lxc-steamvr.service
 
 # 1. Always-on SteamVR: enable for the Steam user (takes effect at its next login, or after the steps in README).
@@ -32,6 +33,14 @@ if [ "${FRAME_SHIM_RTKIT:-0}" = 1 ]; then
     pacman -Q rtkit >/dev/null 2>&1 || pacman -S --needed --noconfirm rtkit
     # rtkit-daemon is D-Bus activated; the bus only needs to re-read its service files (no restart).
     busctl call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ReloadConfig >/dev/null 2>&1 || true
+fi
+
+# 4. setcap vrcompositor-launcher: only when the CT's bounding set has CAP_SYS_NICE + CAP_SETFCAP (helper checks).
+if [ "${FRAME_SHIM_STEAMVR_SETCAP:-0}" = 1 ]; then
+    "$LIB/steamvr-setcap" && systemctl enable steam-lxc-steamvr-setcap.path >/dev/null 2>&1 \
+        && echo "setcap: applied; re-apply path unit enabled (starts at next boot or 'systemctl start steam-lxc-steamvr-setcap.path')"
+else
+    systemctl disable steam-lxc-steamvr-setcap.path >/dev/null 2>&1 || true
 fi
 
 # 5. Frame Wireless Adapter: NetworkManager owns only the dongle interface.
