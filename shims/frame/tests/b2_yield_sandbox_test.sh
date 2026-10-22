@@ -18,7 +18,7 @@ cleanup() { [ "$FAILS" = 0 ] || { echo "--- log"; cat "$T/log"; echo "--- servic
 ROOT=$T/Steam; VRD=$ROOT/steamapps/common/SteamVR/bin/linux64
 mkdir -p "$VRD" "$ROOT/appcache" "$ROOT/logs" "$T/bin" "$T/libexec" "$T/home/.steam" "$T/home/.config/gamescope" "$T/run" "$T/other"
 for f in "$HERE"/bin/* "$HERE"/lib/*; do ln -s "$f" "$T/libexec/$(basename "$f")"; done
-for n in vrserver vrmonitor; do cp /bin/bash "$VRD/$n"; done
+for n in vrserver vrmonitor vrcompositor; do cp /bin/bash "$VRD/$n"; done
 cp /bin/bash "$T/bin/reaper"; cp /bin/bash "$T/other/vrmonitor"; cp /bin/bash "$T/bin/steamwebhelper"
 cat > "$T/bin/logger" <<'S'
 #!/bin/sh
@@ -27,8 +27,11 @@ S
 cat > "$T/bin/fakesteam" <<S
 #!/bin/sh
 echo "steam \$*" >> "\$CALLS"
-setsid "$VRD/vrserver" -c 'trap "exit 0" TERM; while :; do sleep 0.1; done' </dev/null >/dev/null 2>&1 &
-setsid "$VRD/vrmonitor" -c 'trap "" TERM; while :; do sleep 0.1; done' </dev/null >/dev/null 2>&1 &
+# Like real SteamVR: vrserver ignores SIGTERM while its vrmonitor lives; vrmonitor quits on SIGTERM;
+# vrcompositor follows vrserver.
+setsid "$VRD/vrmonitor" -c 'trap "exit 0" TERM; while :; do sleep 0.1; done' </dev/null >/dev/null 2>&1 & M=\$!
+setsid "$VRD/vrserver" -c 'trap "" TERM; while kill -0 '\$M' 2>/dev/null; do sleep 0.1; done' </dev/null >/dev/null 2>&1 & S=\$!
+setsid "$VRD/vrcompositor" -c 'while kill -0 '\$S' 2>/dev/null; do sleep 0.1; done' </dev/null >/dev/null 2>&1 &
 S
 cat > "$T/bin/gamescopectl" <<'S'
 #!/bin/sh
@@ -56,6 +59,8 @@ FRAME_SHIM_STEAMVR_RESUME_DELAY=2
 FRAME_SHIM_YIELD_REAP_GRACE=0
 FRAME_SHIM_ORPHAN_GRACE=1
 FRAME_SHIM_ORPHAN_SETTLE=0
+FRAME_SHIM_STEAMVR_MONITOR_WAIT=3
+FRAME_SHIM_STEAMVR_COMPOSITOR_WAIT=3
 FRAME_SHIM_POLL=0.2
 FRAME_SHIM_STEAM_CMD=$T/bin/fakesteam
 D
@@ -63,7 +68,7 @@ export STEAM_LXC_DEFAULTS=$T/defaults FRAME_SHIM_LIBEXEC=$T/libexec FRAME_SHIM_R
 SL=$ROOT/logs/streaming_log.txt; : > "$SL"
 "$T/bin/steamwebhelper" -c 'while :; do sleep 0.5; done' & SPID=$!; MINE+=($SPID); echo $SPID > "$T/home/.steam/steam.pid"
 
-vrs() { for p in $(pgrep -u "$UID" -x 'vrserver|vrmonitor'); do case "$(readlink /proc/$p/exe)" in "$VRD"/*) echo $p;; esac; done; }
+vrs() { for p in $(pgrep -u "$UID" -x 'vrserver|vrmonitor|vrcompositor'); do case "$(readlink /proc/$p/exe)" in "$VRD"/*) echo $p;; esac; done; }
 vrserver_pid() { for p in $(pgrep -u "$UID" -x vrserver); do case "$(readlink /proc/$p/exe)" in "$VRD"/*) echo $p;; esac; done | head -1; }
 vrup() { [ -n "$(vrserver_pid)" ]; }
 vrdown() { ! vrup; }
@@ -88,11 +93,13 @@ check "reaped log line" grep -q 'reaping orphaned SteamVR processes' "$T/svc.out
 echo "--- 1. flat game (appinfo: no VR fields) with a VR stream already chosen"
 echo "[x] >>> Starting VR stream" >> "$SL"
 spawn_game 1001; G1=$G
-waitfor "flat launch stops vrserver (SIGTERM)" 5 vrdown
+waitfor "flat launch stops SteamVR (SIGTERM vrmonitor first)" 8 vrdown
+check "vrmonitor TERMed before vrserver" bash -c "grep -n 'SIGTERM to vrmonitor' '$LOGF' | head -1 | grep -q . && ! grep -q 'SIGTERM to vrserver' '$LOGF'"
+waitfor "vrcompositor gone, stop verified" 8 grep -q 'SteamVR stopped (vrcompositor gone)' "$LOGF"
 waitfor "helpers inside SteamVR dir gone" 10 bash -c "[ -z \"\$(pgrep -u $UID -x vrmonitor | while read p; do readlink /proc/\$p/exe; done | grep -F '$VRD')\" ]"
 check "decoy vrmonitor outside SteamVR dir survives" alive "$D1"
 check "decoy with 'vrserver' only in argv survives" alive "$D2"
-waitfor "stream-already-on-VR-path warning logged" 3 grep -q 'already started on the VR path' "$LOGF"
+waitfor "stream-already-on-VR-path warning logged (all Remote Play clients)" 3 grep -q 'VR path (VR_MovieStream; affects every client' "$LOGF"
 N=$(launches); sleep 3
 check "no relaunch while the flat game runs (not treated as a crash)" test "$(launches)" = "$N"
 
@@ -146,7 +153,32 @@ for p in $(vrs); do kill -KILL "$p"; done
 FRAME_SHIM_STEAMVR_YIELD_STOP_TIMEOUT=2 "$HERE/bin/steam-lxc-flat" true
 check "stubborn vrserver still alive (no SIGKILL)" alive "$STUB"
 check "logged that it left it running" grep -q 'no SIGKILL of vrserver' "$LOGF"
+check "log says all Remote Play clients are affected" grep -q 'all of them, not only the Frame' "$LOGF"
 kill -KILL "$STUB" 2>/dev/null
+
+echo "--- 7b. optional SIGKILL (FRAME_SHIM_STEAMVR_YIELD_SIGKILL=1) for a vrserver ignoring SIGTERM"
+"$VRD/vrserver" -c 'trap "" TERM; while :; do sleep 0.1; done' & STUB=$!; MINE+=($STUB)
+FRAME_SHIM_STEAMVR_YIELD_SIGKILL=1 FRAME_SHIM_STEAMVR_YIELD_STOP_TIMEOUT=1 "$HERE/bin/steam-lxc-flat" true
+waitfor "SIGKILL only when opted in" 3 bash -c "! kill -0 $STUB 2>/dev/null"
+
+echo "--- 7c. real-world tree: vrserver ignores SIGTERM while vrmonitor lives; vrmonitor first stops everything"
+"$T/bin/fakesteam"; sleep 0.5; K0=$(grep -c 'SIGKILL (' "$LOGF")
+FRAME_SHIM_STEAMVR_YIELD_STOP_TIMEOUT=2 "$HERE/bin/steam-lxc-flat" true
+check "whole SteamVR tree gone (vrserver, vrmonitor, vrcompositor)" test -z "$(vrs)"
+check "vrserver was not SIGKILLed (exited on its own)" test "$(grep -c 'SIGKILL (' "$LOGF")" = "$K0"
+check "vrmonitor then vrserver order logged" grep -q 'SIGTERM to vrmonitor' "$LOGF"
+
+echo "--- 9. service (re)started while a flat game runs and SteamVR is down: no launch until the game exits"
+: > "$CALLS"
+spawn_game 1001; GF=$G; sleep 0.3
+bash "$HERE/bin/steam-lxc-steamvr" > "$T/svc2.out" 2>&1 & SVC=$!
+sleep 4
+check "restarted loop does not launch SteamVR while flat app 1001 runs" test "$(launches)" = 0
+check "restarted loop adopted the running flat game" grep -q 'app 1001 (flat) launched; SteamVR not running' "$LOGF"
+kill -KILL "$GF"
+waitfor "resume after RESUME_DELAY once the flat game exits" 8 vrup
+kill -TERM "$SVC"; wait "$SVC" 2>/dev/null; SVC=
+for p in $(vrs); do kill -KILL "$p" 2>/dev/null; done
 
 echo "--- 8. off by default"
 STEAM_LXC_DEFAULTS=/nonexistent "$HERE/bin/steam-lxc-steamvr" | grep -q 'nothing to do' && ok "service inert when ALWAYS_ON is unset" || bad "service inert when ALWAYS_ON is unset"

@@ -8,7 +8,8 @@
 #  - follow the Steam client across Game Mode / Desktop Mode session switches;
 #  - with FRAME_SHIM_STEAMVR_YIELD=1: confirmed VR game -> SteamVR now; any other game (flat/unknown) -> stop SteamVR,
 #    resume after it exits; while such a game streams to the Frame, gamescope output = FRAME_SHIM_FLAT_STREAM_RES.
-# Never kills a SteamVR it did not decide to stop, never pkill/killall, never SIGKILL vrserver.
+# Never kills a SteamVR it did not decide to stop, never pkill/killall; SIGKILL of vrserver only with
+# FRAME_SHIM_STEAMVR_YIELD_SIGKILL=1. Yield stop order: vrmonitor, then vrserver (exact PIDs), see stop_steamvr.
 set -u
 . "${FRAME_SHIM_LIBEXEC:-/usr/local/lib/steam-lxc/frame}/frame-yield.sh"
 . "$FRAME_LIBEXEC/frame-streamres.sh"
@@ -63,9 +64,9 @@ yield_to() {   # $1 pid $2 appid $3 class
     YPID=$1 YAPP=$2 RESUME_AT= WE_STOPPED=1 LAUNCH_DEADLINE=
     if vr_up; then
         mark=$(stream_mark)
-        stop_steamvr "app $2 is $3"
+        stop_steamvr "app $2 is $3" || flog "yield: SteamVR could not be stopped for app $2; it will not be relaunched while app $2 runs"
         if stream_vr_since "$mark" || [ "$(stream_state)" = vr ]; then
-            flog "yield: the Frame stream had already started on the VR path; restart the stream on the Frame (or relaunch app $2)"
+            flog "yield: a Remote Play stream had already started on the VR path (VR_MovieStream; affects every client, not only the Frame); restart the stream (or relaunch app $2)"
         fi
     else
         flog "yield: app $2 ($3) launched; SteamVR not running"

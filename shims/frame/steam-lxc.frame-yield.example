@@ -7,8 +7,16 @@ FRAME_SHIM_STEAMVR_YIELD_FLAT=
 FRAME_SHIM_STEAMVR_YIELD_VR=
 # Seconds after the last non-VR game exits before SteamVR is started again
 FRAME_SHIM_STEAMVR_RESUME_DELAY=15
-# Optional extra command tried before SIGTERM to vrserver when stopping SteamVR (none is known to work on Linux)
+# Optional extra command tried before the SIGTERMs when stopping SteamVR (none is known to work on Linux)
 FRAME_SHIM_STEAMVR_YIELD_QUIT_CMD=
+# Stop order: SIGTERM vrmonitor (wait MONITOR_WAIT s), then SIGTERM vrserver (wait YIELD_STOP_TIMEOUT s), then verify
+# vrcompositor is gone (COMPOSITOR_WAIT s). While SteamVR runs, ALL Remote Play clients (not only the Frame) get the
+# VR stream path (VR_MovieStream) and may get no video.
+FRAME_SHIM_STEAMVR_MONITOR_WAIT=10
+FRAME_SHIM_STEAMVR_YIELD_STOP_TIMEOUT=15
+FRAME_SHIM_STEAMVR_COMPOSITOR_WAIT=10
+# 1 = SIGKILL a vrserver that survived both SIGTERMs (off: it is left running and logged)
+FRAME_SHIM_STEAMVR_YIELD_SIGKILL=0
 # gamescope output mode while a non-VR game streams to the Frame (desktop stream live): WxH or WxH@Hz, empty = off.
 # Default 1920x1080 (matches the Frame's capture request; avoids the top-left crop). Not used for plain HDMI play.
 FRAME_SHIM_FLAT_STREAM_RES=1920x1080
