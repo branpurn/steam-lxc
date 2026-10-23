@@ -57,7 +57,7 @@ launch() {   # non-blocking: the steam:// forwarder runs in the background, the 
 
 # State (all internal): YPID/YAPP = the non-VR game SteamVR currently yields to; NEXT_LAUNCH = when SteamVR may be
 # (re)started; WE_STOPPED = we stopped vrserver ourselves (not a crash); FAILS = launches in a row without vrserver.
-YPID= YAPP= RESUME_AT= NEXT_LAUNCH= LAUNCH_DEADLINE= WE_STOPPED=0 FAILS=0 WAS_UP=0 SEEN=
+YPID= YAPP= RESUME_AT= NEXT_LAUNCH= LAUNCH_DEADLINE= WE_STOPPED=0 FAILS=0 WAS_UP=0 SEEN= CRASHES=0 CRASH_T0=0
 
 yield_to() {   # $1 pid $2 appid $3 class
     local mark
@@ -121,7 +121,7 @@ while :; do
         streamres_restore
         [ -n "${SPID:-}" ] && echo "Steam exited (session ended or switched); waiting for the next Steam client"
         until steam_alive; do sleep 5; done
-        NEXT_LAUNCH=$(( $(now) + DELAY )); LAUNCH_DEADLINE=; WAS_UP=0
+        NEXT_LAUNCH=$(( $(now) + DELAY )); LAUNCH_DEADLINE=; WAS_UP=0 CRASHES=0 CRASH_T0=0
     fi
     flock 9
     [ "$YIELD" = 1 ] && watch_games
@@ -132,7 +132,17 @@ while :; do
         WAS_UP=1 LAUNCH_DEADLINE= WE_STOPPED=0
     else
         if [ "$WAS_UP" = 1 ] && [ "$WE_STOPPED" = 0 ]; then
-            echo "vrserver exited; relaunching in ${RELAUNCH}s" >&2; NEXT_LAUNCH=$(( $(now) + RELAUNCH ))
+            # Back-off on repeated crashes: each relaunch is a steam://run, which puts Big Picture into a
+            # game-running state; looping on it has stalled the Steam UI. Delay doubles per crash inside
+            # FRAME_SHIM_STEAMVR_CRASH_WINDOW; after FRAME_SHIM_STEAMVR_MAX_CRASHES, stop relaunching until Steam restarts.
+            t=$(now); [ $(( t - CRASH_T0 )) -gt "${FRAME_SHIM_STEAMVR_CRASH_WINDOW:-600}" ] && { CRASHES=0; CRASH_T0=$t; }
+            CRASHES=$((CRASHES + 1)); d=$(( RELAUNCH << (CRASHES - 1) )); [ "$d" -gt 600 ] && d=600
+            if [ "$CRASHES" -gt "${FRAME_SHIM_STEAMVR_MAX_CRASHES:-4}" ]; then
+                flog "vrserver crashed $CRASHES times in ${FRAME_SHIM_STEAMVR_CRASH_WINDOW:-600}s; not relaunching until Steam restarts (start SteamVR by hand)"
+                NEXT_LAUNCH=$(( t + 315360000 ))
+            else
+                echo "vrserver exited; relaunching in ${d}s (crash $CRASHES)" >&2; NEXT_LAUNCH=$(( t + d ))
+            fi
         fi
         WAS_UP=0
         if [ -n "$LAUNCH_DEADLINE" ] && [ "$(now)" -ge "$LAUNCH_DEADLINE" ]; then

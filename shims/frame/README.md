@@ -32,6 +32,10 @@ unless the toggle is 1. The script:
    - if the Steam client goes away (session switch), it waits for the next one and launches again;
    - with `FRAME_SHIM_STEAMVR_YIELD=1`, it also yields to non-VR games (section 6).
 
+   - repeated vrserver crashes back off: the relaunch delay doubles per crash (cap 600 s), and after
+     `FRAME_SHIM_STEAMVR_MAX_CRASHES` (4) crashes within `FRAME_SHIM_STEAMVR_CRASH_WINDOW` (600 s) it stops
+     relaunching until the Steam client restarts.
+
    Only `FRAME_SHIM_STEAMVR_MAX_FAILS` (5) failed launches in a row end the process. `Restart=on-failure`
    (RestartSec=30) then restarts it.
 
@@ -66,6 +70,11 @@ Mitigations:
   start, while SteamVR is stopped.
 - In SteamVR settings, turn off "Start SteamVR when an application starts" style popups and "Show the SteamVR
   window on startup", if your build has them.
+
+**Focus / Big Picture stall (seen):** every relaunch is a `steam://run/250820`, and Big Picture treats SteamVR as a
+running game. After a relaunch Big Picture once stalled in that game-running state: black screen with the cursor and
+notifications, the startup animation frozen on its first frame. Restarting `steamwebhelper` (Steam restarts it)
+recovered it. This is why crashes back off instead of relaunching in a loop. Disable the shim if it recurs.
 
 **Untested:**
 - whether vrmonitor's window gets focus in gamescope Game Mode;
@@ -138,6 +147,26 @@ it lives on the host, and the container only gets the network interface.
   - A polkit rule lets the Steam user manage NetworkManager.
   - Steam creates the hidden WPA connection "Steam Frame Wireless Adapter" when pairing. It holds per-headset
     secrets, so it is not packaged here. Back it up from `/etc/NetworkManager/system-connections/` if needed.
+
+### Host side of the adapter (`host/adapter/`)
+The in-kernel `rtw89_8852cu` (seen on 7.0-series kernels) fails to associate with the adapter's AP:
+`failed to insert STA entry for the AP (error -22)`. Working setup, all on the host:
+1. `build-rtw89-git.sh [ref]` builds the out-of-tree driver (github.com/morrownr/rtw89, modules `rtw89_*_git`),
+   through DKMS when available so kernel updates rebuild it. Without DKMS, the plain `make install` puts the modules
+   in `/lib/modules/<kver>/updates/` for the running kernel only: re-run after every kernel update (copied `.ko`
+   files do not load on another kernel).
+2. `rtw89-git-frame.conf` -> `/etc/modprobe.d/`: blacklists the in-kernel rtw89 modules, `install rtw89_8852cu
+   /bin/false`, and `options rtw89_core_git disable_ps_mode=1` (power save off). `led_class_multicolor.conf` ->
+   `/etc/modules-load.d/` (a dependency of the _git modules). Then `update-initramfs -u`.
+3. `71-steam-frame-adapter.rules` -> `/etc/udev/rules.d/`: USB `28de:2432` gets `MODE=0666` so Steam in the CT can
+   open the device.
+4. Optional hot-plug instead of (or as well as) the static phys NIC: `steam-lxc-frame-wifi` ->
+   `/usr/local/sbin/`, `70-steam-lxc-frame-wifi.rules` -> `/etc/udev/rules.d/`, and `frame-host.conf.example` ->
+   `/etc/steam-lxc/frame-host.conf` with `FRAME_HOST_CTID` set (empty = never moves anything). On add, it renames the
+   netdev to `FRAME_HOST_IFACE_HOST` and moves the phy into the running CT's netns as `FRAME_HOST_IFACE_CT`
+   (`wlframe0`). Matches by USB ID only. Use `steam-lxc-frame-wifi rename` in the hook (`dongle/hook-rename.example`).
+
+Observed once: after the adapter disappeared from Steam, a full CT restart brought it back; the cause is unconfirmed.
 
 ## 6. SteamVR yields to non-VR games (pending better Steam Frame support in SteamOS by Valve)
 **Why:** with always-on SteamVR (section 1), a flat game streamed to the Frame takes the VR stream path and shows

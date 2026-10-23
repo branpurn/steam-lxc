@@ -1,5 +1,5 @@
 #!/bin/bash
 # Host-side LXC hook (example): re-apply the dongle's stable host name before start and after stop, because a phys NIC
 # returns to the host under its kernel name when the CT stops. Replace the command with your own rename helper.
-case "$2" in pre-start|post-stop) [ -x /usr/local/sbin/frame-dongle-rename ] && /usr/local/sbin/frame-dongle-rename ;; esac
+case "$2" in pre-start|post-stop) [ -x /usr/local/sbin/steam-lxc-frame-wifi ] && /usr/local/sbin/steam-lxc-frame-wifi rename ;; esac
 exit 0

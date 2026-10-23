@@ -80,6 +80,14 @@
 - **Mode:** `GAME_OUTPUT_WIDTH/HEIGHT` become `SCREEN_WIDTH/HEIGHT`, i.e. `-W/-H`. For the refresh, the DRM backend's preferred refresh comes from
   `-r`, and gamescope-session-plus has no variable for it, so the wrapper adds `-r $GAME_OUTPUT_REFRESH`.
   The connector preference is `GAME_OUTPUT_CONNECTOR` (gamescope `--prefer-output`, default `*`).
+- **Refresh: leave `GAME_OUTPUT_REFRESH` empty (soft default).** Without `-r` gamescope starts at the driver's preferred
+  mode, and the refresh is then picked in Steam's display settings. If set, `-r` must match an exposed mode: at 4K the
+  NVIDIA driver exposes 119.88 Hz, not 120.000. Changing the refresh live in Steam can black-screen an HDMI 2.1 FRL
+  link (recovery: restart the session); prefer setting it once and restarting the session.
+- **Saved mode (`GAME_OUTPUT_SAVED_MODE`):** gamescope keeps the last mode per display in
+  `~/.config/gamescope/modes.cfg` (`<Make Model>:WxH@Hz`), and Steam re-applies it after start. A stale 1080p line
+  there made the session drop to 1920x1080 shortly after starting at 4K (seen as games, e.g. a Source game, running at
+  1080p). When set, `steamos-session` rewrites that display's line before gamescope starts. Empty = untouched.
 - **Verified:** after restarting the session there was one gamescope with `-r/-W/-H` from the config, the log showed
   `drm: selecting mode <W>x<H>@<R>Hz`, `Got known display: steam_lxc_no_hdr`, with no `HDR output enabled`. The root properties were
   `SUPPORTS_HDR=0` and `HDR_ENABLED=1` (Steam's setting, now ineffective). DPMS was On and Steam was still signed in.

@@ -1,0 +1,7 @@
+# Host /etc/steam-lxc/frame-host.conf (read by steam-lxc-frame-wifi). Empty FRAME_HOST_CTID = do nothing.
+FRAME_HOST_CTID=
+# Host-side stable name (must match NAME= in 70-steam-lxc-frame-wifi.rules) and the name inside the CT
+FRAME_HOST_IFACE_HOST=wlframehost
+FRAME_HOST_IFACE_CT=wlframe0
+# USB vendor:product to match
+FRAME_HOST_USB_ID=28de:2432
