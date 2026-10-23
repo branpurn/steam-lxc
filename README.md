@@ -42,6 +42,11 @@ for site-specific hooks.
   - `create-ct.sh` (env-configured) and `lxc.conf.fragment` (device passthrough);
   - `hookscripts/steam-lxc-hook.sh`: GPU exclusivity, GPU cgroup prep, `/etc/steam-lxc/hook.d/*`;
   - `sbin/gpu-exclusive.sh` and `sbin/steam-lxc-gpu-prep.sh`;
+    `steam-lxc-gpu-prep.sh <ctid>` runs at pre-start and adds `lxc.cgroup2.devices.allow: c <major>:* rwm` for the
+    *current* majors of the NVIDIA devices in `/proc/devices` (nvidia-uvm, nvidia-caps, nvidia-nvswitch, ...). These
+    majors are dynamic and can change on any host reboot; a missing one shows up as EPERM opening `/dev/nvidia-uvm`
+    (CUDA/Vulkan init fails, games report e.g. "failed to initialize graphics device"). It only edits the main
+    section of the CT config (a line under a `[snapshot]` header has no effect) and never removes lines;
   - optional `sbin/steam-lxc-hdmi-watchdog-host` (+ `systemd/steam-lxc-hdmi-watchdog-host.service`): forwards host kernel
     HDMI link-training failures to the CT's watchdog.
 - **`ct/install/`** runs inside the CT as root, in order: `10-bootstrap.sh`, `20-nvidia-hostmatched.sh`, `30-valve-repos.sh`,
