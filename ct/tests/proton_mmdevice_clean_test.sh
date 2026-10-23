@@ -15,10 +15,26 @@ ok "dry run finds both library prefixes" '[ "$(grep -c "2 stale" "$T/dry")" = 2 
 ok "dry run leaves files untouched" 'cmp -s "$FIX" "$P1/system.reg" && cmp -s "$FIX" "$P2/system.reg"'
 ok "dry run reports max name length" 'grep -q "longest stale name 123 chars" "$T/dry"'
 
+echo "--- name parsing / lengths"
+python3 - "$TOOL" "$FIX" >"$T/lens" <<'PY'
+import importlib.machinery, importlib.util, sys
+ld = importlib.machinery.SourceFileLoader("pmc", sys.argv[1]); m = importlib.util.module_from_spec(importlib.util.spec_from_loader("pmc", ld)); ld.exec_module(m)
+_, _, devs, stale = m.analyse(open(sys.argv[2]).read())
+for (flow, guid), d in sorted(devs.items()):
+    print(guid[1:5], d["state"], m.unescape_len(d["name"]))
+PY
+cat "$T/lens"
+ok "plain-string capture name length 101" 'grep -qx "1111 4 101" "$T/lens"'
+ok "plain-string present name length 26" 'grep -qx "2222 1 26" "$T/lens"'
+ok "str(2): render name length 123" 'grep -qx "3333 4 123" "$T/lens"'
+ok "escaped name (\\\" \\\\ \\x00e9) length 26" 'grep -qx "4444 1 26" "$T/lens"'
+ok "no device name parsed as empty" '! grep -q " 0$" "$T/lens"'
+ok "dry run reports per-flow longest + any" 'grep -q "longest stale name 123 chars (longest any 123)" "$T/dry"'
+
 echo "--- --max-len 1000 (no-op)"; "$TOOL" --steam-root "$T/steam" --apply --max-len 1000 | tee "$T/ml"
 ok "--max-len above longest skips" 'cmp -s "$FIX" "$P1/system.reg" && ! ls "$P1"/system.reg.bak-* 2>/dev/null'
 
-echo "--- apply"; "$TOOL" --steam-root "$T/steam" --apply | tee "$T/apply"
+echo "--- apply --max-len 0"; "$TOOL" --steam-root "$T/steam" --apply --max-len 0 | tee "$T/apply"
 for p in "$P1" "$P2"; do
   ok "stale devices removed ($p)" '! grep -q "1111-111111111111\|3333-333333333333" "$p/system.reg"'
   ok "present/unplugged devices kept" 'grep -q "4444-444444444444" "$p/system.reg" && grep -q "2222-222222222222" "$p/system.reg" && grep -q "5555-555555555555" "$p/system.reg"'
@@ -31,6 +47,10 @@ diff <(cat "$FIX") "$P1/system.reg" | grep '^>' && { echo "FAIL: apply added lin
 echo "--- second apply (idempotent)"; "$TOOL" --steam-root "$T/steam" --apply | tee "$T/a2"
 ok "second apply finds nothing" '[ "$(grep -c "0 stale" "$T/a2")" = 2 ]'
 
+echo "--- --max-len 0 cleans even when no names parse"
+mkdir -p "$T/nn"; grep -v ',14"=' "$FIX" >"$T/nn/system.reg"
+"$TOOL" --prefix "$T/nn" --apply --max-len 0 | tee "$T/nn.out"
+ok "nameless stale devices removed with --max-len 0" 'grep -q "longest stale name 0 chars" "$T/nn.out" && ! grep -q "1111-111111111111\|3333-333333333333" "$T/nn/system.reg"'
 echo "--- running wineserver -> skip"; cp "$FIX" "$P1/system.reg"
 eval "$(stat -c 'D=%d I=%i' "$P1")"; S=/tmp/.wine-$(id -u)/server-$(printf '%x-%x' "$D" "$I")
 mkdir -p "$S"; : >"$S/socket"

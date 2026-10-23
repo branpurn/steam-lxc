@@ -12,7 +12,8 @@ import argparse, glob, os, re, sys, time
 
 KEY_RE = re.compile(r'^\[Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\MMDevices\\\\Audio\\\\'
                     r'(Render|Capture)\\\\(\{[0-9A-Fa-f-]+\})(\\\\Properties)?\]', re.I)
-NAME_RE = re.compile(r'^"\{a45c254e-df1c-4efd-8020-67d146a850e0\},14"=str\(?\d*\)?:"(.*)"$', re.I)
+# Wine writes REG_SZ as plain "..." and REG_EXPAND_SZ/REG_MULTI_SZ as str(2):"..." / str(7):"..."; accept both.
+NAME_RE = re.compile(r'^"\{a45c254e-df1c-4efd-8020-67d146a850e0\},14"=(?:str\(\d*\):)?"((?:[^"\\]|\\.)*)"\s*$', re.I)
 STATE_RE = re.compile(r'^"DeviceState"=dword:([0-9a-fA-F]{8})$')
 KEEP_BACKUPS = 3
 
@@ -50,7 +51,8 @@ def analyse(text):
 
 
 def unescape_len(s):
-    return len(re.sub(r'\\x[0-9a-fA-F]+|\\.', "x", s))
+    r"""Length of a wine-escaped registry string: \\, \", \n etc. count as 1; \xHHHH (up to 4 hex) is one char."""
+    return len(re.sub(r'\\x[0-9a-fA-F]{1,4}|\\.', "x", s))
 
 
 def prefix_dirs(steam_roots):
@@ -132,7 +134,8 @@ def process(pfx, apply, max_len, force):
     if not stale:
         return 0
     skip = None
-    if longest <= max_len:
+    # --max-len N: clean only when the longest stale name exceeds N; N <= 0 always cleans (even if no name was found).
+    if max_len > 0 and longest <= max_len:
         skip = "longest stale name <= --max-len %d" % max_len
     elif apply and not force and wineserver_running(pfx):
         skip = "wineserver running (or unsure) for this prefix"
