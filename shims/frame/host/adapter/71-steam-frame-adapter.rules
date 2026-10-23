@@ -1,0 +1,3 @@
+# Host: Steam Frame Wireless Adapter (USB 28de:2432, Realtek RTL8852CU). Steam/SteamVR in the CT opens the USB
+# device directly, so it must be world-accessible on the host (the node is bind-mounted/passed to the CT).
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="28de", ATTR{idProduct}=="2432", MODE="0666"

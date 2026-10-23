@@ -11,7 +11,14 @@ GAME_OUTPUT_CONNECTOR="*"
 # Output mode; empty = the panel's preferred mode. REFRESH needs WIDTH and HEIGHT.
 GAME_OUTPUT_WIDTH=
 GAME_OUTPUT_HEIGHT=
+# Empty (recommended) = no gamescope -r: gamescope starts at the driver's preferred mode and the refresh is changed in
+# Steam's display settings. If set it must match a mode the driver exposes exactly (NVIDIA exposes e.g. 119.88, not
+# 120.000, at 4K). Note: changing the refresh live in Steam can black-screen an HDMI 2.1 FRL link (see NOTES.md).
 GAME_OUTPUT_REFRESH=
+# Pin gamescope's saved mode (modes.cfg) at each session start: "<Make Model>:WxH@Hz", the line format gamescope
+# writes (copy it from ~/.config/gamescope/modes.cfg once the wanted mode is set). Stops Steam dropping to a lower
+# saved mode (e.g. 1080p) after start. Empty = leave modes.cfg alone.
+GAME_OUTPUT_SAVED_MODE=
 
 # --- Desktop Mode (Plasma) output, applied with kscreen-doctor at login; empty = KScreen's choice ---
 DESKTOP_OUTPUT=
@@ -56,6 +63,10 @@ FRAME_SHIM_RTKIT=0
 # 1 = let NetworkManager manage the Steam Frame Wireless Adapter interface (and nothing else)
 FRAME_SHIM_DONGLE_NM=0
 FRAME_DONGLE_IFACE=wlframe0
+# Relaunch back-off after vrserver crashes (doubles per crash; stop after MAX_CRASHES in WINDOW s until Steam restarts)
+#FRAME_SHIM_STEAMVR_RELAUNCH_DELAY=30
+#FRAME_SHIM_STEAMVR_MAX_CRASHES=4
+#FRAME_SHIM_STEAMVR_CRASH_WINDOW=600
 # SteamVR yields to non-VR games (+ 1080p flat stream): see shims/frame/steam-lxc.frame-yield.example
 
 # HDMI link watchdog (opt-in). After a modeset (session start/stop, mode change) an HDMI 2.1 FRL link can fail to train,

@@ -1,0 +1,36 @@
+#!/bin/bash
+# Host: stable naming + phy hand-off of the Steam Frame Wireless Adapter into a steam-lxc CT (netns move).
+# Usage: steam-lxc-frame-wifi rename|hotplug|move. Config: /etc/steam-lxc/frame-host.conf (frame-host.conf.example).
+# Matches strictly by USB vendor:product; never by port path or MAC. Does nothing unless FRAME_HOST_CTID is set.
+# Note: a phys NIC returns to the host under its kernel name when the CT stops; run "rename" from a pre-start/post-stop
+# hook (dongle/hook-rename.example) so it gets its stable name back.
+set -u
+[ -r /etc/steam-lxc/frame-host.conf ] && . /etc/steam-lxc/frame-host.conf
+CT=${FRAME_HOST_CTID:-}; HN=${FRAME_HOST_IFACE_HOST:-wlframehost}; CN=${FRAME_HOST_IFACE_CT:-wlframe0}
+ID=${FRAME_HOST_USB_ID:-28de:2432}
+usb_of() { local d; d=$(readlink -f "/sys/class/net/$1/device/.."); echo "$(cat "$d/idVendor" 2>/dev/null):$(cat "$d/idProduct" 2>/dev/null)"; }
+host_rename() {
+  local n
+  for n in $(ls /sys/class/net); do
+    [ -e "/sys/class/net/$n/device" ] || continue
+    [ "$(usb_of "$n")" = "$ID" ] || continue
+    [ "$n" = "$HN" ] && continue
+    ip link set "$n" down 2>/dev/null; ip link set "$n" name "$HN" && echo "steam-lxc-frame-wifi: $n -> $HN"
+  done
+}
+hot_move() {
+  local pid phy
+  [ -n "$CT" ] || { echo "steam-lxc-frame-wifi: FRAME_HOST_CTID not set; not moving"; return 0; }
+  pct status "$CT" 2>/dev/null | grep -q running || return 0
+  pid=$(lxc-info -n "$CT" -p -H 2>/dev/null); [ -n "$pid" ] || return 0
+  [ -e "/sys/class/net/$HN" ] || return 0
+  phy=$(basename "$(readlink -f "/sys/class/net/$HN/phy80211")")
+  iw phy "$phy" set netns "$pid" && nsenter -t "$pid" -n ip link set "$HN" name "$CN" \
+    && nsenter -t "$pid" -n ip link set "$CN" up && echo "steam-lxc-frame-wifi: $HN -> CT$CT:$CN"
+}
+case "${1:-}" in
+  rename) for _ in $(seq 1 15); do host_rename; [ -e "/sys/class/net/$HN" ] && break; sleep 1; done ;;
+  hotplug) sleep 2; host_rename; hot_move ;;
+  move) host_rename; hot_move ;;
+  *) echo "usage: $0 rename|hotplug|move" >&2; exit 2 ;;
+esac

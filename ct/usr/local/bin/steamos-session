@@ -7,6 +7,14 @@ export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
 [ -e /usr/lib/libdrm.so ] || echo "steamos-session: WARNING /usr/lib/libdrm.so missing" >&2
 # Audio: PipeWire user units (socket-activated); make sure they are up before Steam.
 systemctl --user start pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
+# Optional: pin gamescope's saved mode for the panel (GAME_OUTPUT_SAVED_MODE="<Make Model>:WxH@Hz", the exact line
+# format gamescope writes). Without it Steam can restore a lower saved mode (e.g. 1080p) after start. Empty = untouched.
+[ -r /etc/default/steam-lxc ] && GAME_OUTPUT_SAVED_MODE=$(. /etc/default/steam-lxc; echo "${GAME_OUTPUT_SAVED_MODE:-}")
+if [ -n "${GAME_OUTPUT_SAVED_MODE:-}" ] && [[ $GAME_OUTPUT_SAVED_MODE == *:*x*@* ]]; then
+  mf=${GAMESCOPE_MODE_SAVE_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/gamescope/modes.cfg}; key=${GAME_OUTPUT_SAVED_MODE%:*}
+  mkdir -p "$(dirname "$mf")"; touch "$mf"
+  { grep -vF "$key:" "$mf"; echo "$GAME_OUTPUT_SAVED_MODE"; } > "$mf.tmp" && mv "$mf.tmp" "$mf"
+fi
 # gamescope-session-plus counts short sessions in this file and errors if it is missing
 touch /tmp/chimeraos-short-session-tracker
 # pam_systemd adds ambient caps; Steam's srt-bwrap refuses to run with them. Drop before exec.

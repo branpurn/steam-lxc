@@ -100,7 +100,20 @@ Attempts are capped (`HDMI_WATCHDOG_MAX` per `HDMI_WATCHDOG_WINDOW`) and backed 
   It sends an event to each running GPU CT (`HDMI_WATCHDOG_CTS`, else `GPU_CTS` in `/etc/steam-lxc/host.conf`). It
   matches `HDMI_WATCHDOG_PATTERN`, which defaults to the NVIDIA "HDMI FRL link training failed" message.
 
+**Not detectable:** a monitor/TV power cycle (or input switch) can leave the panel black while DRM `link-status`
+still reads `Good` and no training failure is logged, so the watchdog cannot see it. Recovery: restart the session
+(`systemctl restart steamos-session`).
+
 Run the tests with `ct/tests/hdmi_watchdog_test.sh`. Manual trigger: `steam-lxc-hdmi-watchdog event manual`.
+
+## Host: NVIDIA driver options (recommended)
+`nvidia-drm modeset=1` is required. `fbdev=0` is recommended (optional): `/etc/modprobe.d/nvidia-drm.conf` with
+`options nvidia-drm modeset=1 fbdev=0`, then `update-initramfs -u` and reboot. With the driver's fbdev emulation on,
+the host console keeps a framebuffer on the panel's connector, so the host holds a mode on the output between CT
+sessions and gets involved in every handover; with `fbdev=0` the host leaves the connector alone and gamescope in the
+CT is the only one doing modesets. Trade-off: no host text console on that GPU (use another output, serial or SSH).
 
 ## Optional shims
 - [`shims/frame/`](shims/frame/README.md): Steam Frame helpers (always-on SteamVR, headset record seeding, rtkit, Frame Wireless Adapter), pending better Steam Frame support in SteamOS from Valve. All off by default.
+- An "Errata shim" (default-on bundle for generic hacky workarounds) is planned but not built yet; such workarounds
+  currently live in the core session scripts or the Frame shim and are documented in NOTES.md.
