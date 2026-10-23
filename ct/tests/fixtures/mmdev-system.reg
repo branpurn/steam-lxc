@@ -1,0 +1,62 @@
+WINE REGISTRY Version 2
+;; All keys relative to \\Machine
+
+#arch=win64
+
+[Software\\Wine] 1760000000
+#time=1dc00000000000a
+"Version"="win10"
+
+[Software\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Capture\\{11111111-1111-1111-1111-111111111111}] 1760000001
+#time=1dc00000000001
+"DeviceState"=dword:00000004
+
+[Software\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Capture\\{11111111-1111-1111-1111-111111111111}\\Properties] 1760000001
+#time=1dc00000000001
+"{A45C254E-DF1C-4EFD-8020-67D146A850E0},14"="Microphone (Microphone (Microphone (Microphone (Microphone (Microphone (Monitor of Dummy Output))))))"
+"{b3f8fa53-0004-438e-9003-51a46e139bfc},2"="{0.0.0.00000000}.{11111111-1111-1111-1111-111111111111}"
+
+[Software\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Capture\\{22222222-2222-2222-2222-222222222222}] 1760000002
+#time=1dc00000000002
+"DeviceState"=dword:00000001
+
+[Software\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Capture\\{22222222-2222-2222-2222-222222222222}\\Properties] 1760000002
+#time=1dc00000000002
+"{A45C254E-DF1C-4EFD-8020-67D146A850E0},14"="Microphone (vrlink-source)"
+"{b3f8fa53-0004-438e-9003-51a46e139bfc},2"="{0.0.0.00000000}.{22222222-2222-2222-2222-222222222222}"
+
+[Software\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render] 1760000003
+#time=1dc000000000003
+"Unrelated"=dword:00000001
+
+[Software\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render\\{33333333-3333-3333-3333-333333333333}] 1760000004
+#time=1dc00000000004
+"DeviceState"=dword:00000004
+
+[Software\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render\\{33333333-3333-3333-3333-333333333333}\\Properties] 1760000004
+#time=1dc00000000004
+"{A45C254E-DF1C-4EFD-8020-67D146A850E0},14"=str(2):"Speakers (Speakers (Speakers (Speakers (Speakers (Speakers (Speakers (Speakers (Speakers (Steam Streaming Playback)))))))))"
+"{b3f8fa53-0004-438e-9003-51a46e139bfc},2"="{0.0.0.00000000}.{33333333-3333-3333-3333-333333333333}"
+
+[Software\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render\\{44444444-4444-4444-4444-444444444444}] 1760000005
+#time=1dc00000000005
+"DeviceState"=dword:00000001
+
+[Software\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render\\{44444444-4444-4444-4444-444444444444}\\Properties] 1760000005
+#time=1dc00000000005
+"{A45C254E-DF1C-4EFD-8020-67D146A850E0},14"="Speakers (Dummy \"Out\" \\ \x00e9)"
+"{b3f8fa53-0004-438e-9003-51a46e139bfc},2"="{0.0.0.00000000}.{44444444-4444-4444-4444-444444444444}"
+
+[Software\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render\\{55555555-5555-5555-5555-555555555555}] 1760000006
+#time=1dc00000000006
+"DeviceState"=dword:00000008
+
+[Software\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render\\{55555555-5555-5555-5555-555555555555}\\Properties] 1760000006
+#time=1dc00000000006
+"{A45C254E-DF1C-4EFD-8020-67D146A850E0},14"="Speakers (unplugged)"
+"{b3f8fa53-0004-438e-9003-51a46e139bfc},2"="{0.0.0.00000000}.{55555555-5555-5555-5555-555555555555}"
+
+[System\\CurrentControlSet\\Control] 1760000007
+#time=1dc000000000007
+"Multi"=hex:01,02,\
+  03,04

@@ -32,7 +32,8 @@ The file sets:
 - the HDR-off option;
 - the NVIDIA tweaks (`composite_force`/`adaptive_sync`);
 - the connectors the display keep-awake watches;
-- the opt-in HDMI link watchdog (`STEAM_LXC_HDMI_WATCHDOG`, `HDMI_WATCHDOG_*`).
+- the opt-in HDMI link watchdog (`STEAM_LXC_HDMI_WATCHDOG`, `HDMI_WATCHDOG_*`);
+- the Proton stale audio device cleanup (`PROTON_MMDEV_CLEAN`, on by default).
 
 The host side uses env vars for `host/create-ct.sh`, plus `/etc/steam-lxc/host.conf` (`GPU_CTS`) and `/etc/steam-lxc/hook.d/`
 for site-specific hooks.
@@ -110,6 +111,28 @@ still reads `Good` and no training failure is logged, so the watchdog cannot see
 (`systemctl restart steamos-session`).
 
 Run the tests with `ct/tests/hdmi_watchdog_test.sh`. Manual trigger: `steam-lxc-hdmi-watchdog event manual`.
+
+## Proton audio device names (stale device cleanup, on by default)
+Proton 11's [`dlls/mmdevapi/devenum.c`](https://github.com/ValveSoftware/wine/blob/proton_11.0/dlls/mmdevapi/devenum.c)
+(from [14ba8d1](https://github.com/ValveSoftware/wine/commit/14ba8d1be8a138469c039ca9d3a372a44757c4cd)) re-creates every
+stale audio endpoint (`DeviceState=4`, NOTPRESENT) in `load_devices_from_reg` from its stored
+`DEVPKEY_Device_FriendlyName` (`{a45c254e-df1c-4efd-8020-67d146a850e0},14`), and `MMDevice_Create` wraps that name again
+as `"%ls (%ls)"` with *Speakers* or *Microphone*. Each game start adds one layer:
+`Microphone (Microphone (... (Monitor of Dummy Output)))`. Past roughly 115-233 characters Steam Audio (phonon), e.g. in
+VRChat, crashes in ntdll (access violation) or hangs during init.
+
+It is worse here than on a typical desktop because PipeWire devices come and go all the time: SteamVR's vrlink
+sink/source, *Steam Streaming Playback*, and *Dummy Output* when no sink is present. Each one that disappears becomes
+another stale entry that keeps growing.
+
+`steamos-session` runs [`proton-mmdevice-clean --apply`](ct/usr/local/bin/proton-mmdevice-clean) before Steam starts.
+It goes through every `steamapps/compatdata/*/pfx/system.reg` in all library folders (`libraryfolders.vdf`) and removes
+the `MMDevices\Audio\{Render,Capture}\{GUID}` keys (and their `Properties` subkeys) whose `DeviceState` is
+`dword:00000004`. Wine re-creates present devices on its next start. Other keys are left byte-for-byte unchanged. The
+file is written atomically, and a `system.reg.bak-mmdev-<timestamp>` backup is kept (the last 3). A prefix is skipped
+if a wineserver is (or may be) running for it. To run it by hand: `proton-mmdevice-clean` (dry run: lists the
+entries and the longest name), `--apply`, `--max-len N`. Settings: `PROTON_MMDEV_CLEAN=0` turns it off, and
+`PROTON_MMDEV_CLEAN_MAX_LEN` sets a threshold. Test: `ct/tests/proton_mmdevice_clean_test.sh`.
 
 ## Host: NVIDIA driver options (recommended)
 `nvidia-drm modeset=1` is required. `fbdev=0` is recommended (optional): `/etc/modprobe.d/nvidia-drm.conf` with
