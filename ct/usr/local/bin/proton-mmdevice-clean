@@ -1,0 +1,198 @@
+#!/usr/bin/env python3
+"""Remove stale (DeviceState=4, NOTPRESENT) MMDevices audio endpoints from Proton prefixes.
+
+Works around Proton 11 dlls/mmdevapi/devenum.c (load_devices_from_reg): every wine start re-creates each stale
+device from its stored FriendlyName and MMDevice_Create wraps it again as "Speakers (...)"/"Microphone (...)", so
+names nest one level per start until apps (e.g. Steam Audio/phonon in VRChat) crash or hang. Wine re-creates
+present devices on the next start, so removing NOTPRESENT entries is safe. See README.md ("Proton audio device names").
+
+Default is a dry run. stdlib only.
+"""
+import argparse, glob, os, re, sys, time
+
+KEY_RE = re.compile(r'^\[Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\MMDevices\\\\Audio\\\\'
+                    r'(Render|Capture)\\\\(\{[0-9A-Fa-f-]+\})(\\\\Properties)?\]', re.I)
+NAME_RE = re.compile(r'^"\{a45c254e-df1c-4efd-8020-67d146a850e0\},14"=str\(?\d*\)?:"(.*)"$', re.I)
+STATE_RE = re.compile(r'^"DeviceState"=dword:([0-9a-fA-F]{8})$')
+KEEP_BACKUPS = 3
+
+
+def split_sections(text):
+    """Return (preamble, [section strings]). A section starts at a '[' line preceded by a blank line (wine format)
+    and runs up to the next one, so joining preamble + sections reproduces the file byte for byte."""
+    lines = text.splitlines(keepends=True)
+    starts = [i for i, l in enumerate(lines) if l.startswith("[") and i > 0 and lines[i - 1].strip() == ""]
+    if not starts:
+        return text, []
+    pre = "".join(lines[:starts[0]])
+    secs = ["".join(lines[a:b]) for a, b in zip(starts, starts[1:] + [len(lines)])]
+    return pre, secs
+
+
+def analyse(text):
+    pre, secs = split_sections(text)
+    devs = {}  # (flow, guid) -> {"state":..., "name":..., "idx":[...]}
+    for i, s in enumerate(secs):
+        m = KEY_RE.match(s)
+        if not m:
+            continue
+        d = devs.setdefault((m.group(1), m.group(2).lower()), {"state": None, "name": "", "idx": []})
+        d["idx"].append(i)
+        for line in s.splitlines():
+            sm = STATE_RE.match(line)
+            if sm and not m.group(3):
+                d["state"] = int(sm.group(1), 16)
+            nm = NAME_RE.match(line)
+            if nm and m.group(3):
+                d["name"] = nm.group(1)
+    stale = {k: v for k, v in devs.items() if v["state"] == 4}
+    return pre, secs, devs, stale
+
+
+def unescape_len(s):
+    return len(re.sub(r'\\x[0-9a-fA-F]+|\\.', "x", s))
+
+
+def prefix_dirs(steam_roots):
+    libs = []
+    for root in steam_roots:
+        root = os.path.realpath(os.path.expanduser(root))
+        if not os.path.isdir(root):
+            continue
+        libs.append(root)
+        vdf = os.path.join(root, "steamapps", "libraryfolders.vdf")
+        try:
+            with open(vdf, encoding="utf-8", errors="replace") as f:
+                for m in re.finditer(r'"path"\s+"((?:[^"\\]|\\.)*)"', f.read()):
+                    libs.append(os.path.realpath(m.group(1).replace("\\\\", "\\")))
+        except OSError:
+            pass
+    seen, out = set(), []
+    for lib in libs:
+        for reg in sorted(glob.glob(os.path.join(lib, "steamapps", "compatdata", "*", "pfx", "system.reg"))):
+            p = os.path.realpath(os.path.dirname(reg))
+            if p not in seen:
+                seen.add(p)
+                out.append(p)
+    return out
+
+
+def wineserver_running(pfx):
+    """True if a wineserver (may) serve this prefix. Errs on the side of True when unsure."""
+    try:
+        st = os.stat(pfx)
+    except OSError:
+        return True
+    sdir = "/tmp/.wine-%d/server-%x-%x" % (os.getuid(), st.st_dev, st.st_ino)
+    if os.path.exists(os.path.join(sdir, "socket")):
+        return True
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open("/proc/%s/comm" % pid) as f:
+                if f.read().strip() != "wineserver":
+                    continue
+        except OSError:
+            continue
+        try:
+            with open("/proc/%s/environ" % pid, "rb") as f:
+                env = dict(e.split(b"=", 1) for e in f.read().split(b"\0") if b"=" in e)
+        except OSError:
+            return True  # can't tell which prefix it serves
+        wp = env.get(b"WINEPREFIX")
+        if wp is None:
+            return True
+        try:
+            if os.path.samefile(wp.decode(errors="replace"), pfx):
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def prune_backups(reg):
+    baks = sorted(glob.glob(reg + ".bak-mmdev-*"))
+    for b in baks[:-KEEP_BACKUPS]:
+        try:
+            os.remove(b)
+        except OSError:
+            pass
+
+
+def process(pfx, apply, max_len, force):
+    reg = os.path.join(pfx, "system.reg")
+    with open(reg, "r", encoding="utf-8", errors="surrogateescape", newline="") as f:
+        text = f.read()
+    pre, secs, devs, stale = analyse(text)
+    longest = max([unescape_len(d["name"]) for d in stale.values()] or [0])
+    allmax = max([unescape_len(d["name"]) for d in devs.values()] or [0])
+    print("%s: %d devices, %d stale, longest stale name %d chars (longest any %d)"
+          % (pfx, len(devs), len(stale), longest, allmax))
+    if not stale:
+        return 0
+    skip = None
+    if longest <= max_len:
+        skip = "longest stale name <= --max-len %d" % max_len
+    elif apply and not force and wineserver_running(pfx):
+        skip = "wineserver running (or unsure) for this prefix"
+    verb = "remove" if apply and not skip else "would remove"
+    for (flow, guid), d in sorted(stale.items()):
+        n = d["name"]
+        print("  %s %s %s %s" % (verb, flow, guid, (n[:100] + "...") if len(n) > 100 else n))
+    if skip:
+        print("  skip: " + skip)
+        return 0
+    if not apply:
+        return 0
+    drop = {i for d in stale.values() for i in d["idx"]}
+    new = pre + "".join(s for i, s in enumerate(secs) if i not in drop)
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    bak = "%s.bak-mmdev-%s" % (reg, ts)
+    with open(bak, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
+        f.write(text)
+    st = os.stat(reg)
+    tmp = reg + ".tmp-mmdev"
+    with open(tmp, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
+        f.write(new)
+        f.flush()
+        os.fsync(f.fileno())
+    os.chmod(tmp, st.st_mode & 0o7777)
+    try:
+        os.chown(tmp, st.st_uid, st.st_gid)
+    except OSError:
+        pass
+    os.replace(tmp, reg)
+    prune_backups(reg)
+    print("  removed %d devices (%d sections); backup %s" % (len(stale), len(drop), os.path.basename(bak)))
+    return len(stale)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    g = ap.add_mutually_exclusive_group()
+    g.add_argument("--dry-run", action="store_true", help="show what would be removed (default)")
+    g.add_argument("--apply", action="store_true", help="remove stale devices (backup kept)")
+    ap.add_argument("--max-len", type=int, default=0,
+                    help="only clean prefixes whose longest stale name exceeds N chars (default 0 = always)")
+    ap.add_argument("--steam-root", action="append",
+                    help="Steam root (repeatable; default ~/.local/share/Steam and ~/.steam/steam)")
+    ap.add_argument("--prefix", action="append", help="clean this wine prefix (dir with system.reg) instead")
+    ap.add_argument("--force", action="store_true", help="skip the running-wineserver check (testing only)")
+    a = ap.parse_args()
+    pfxs = [os.path.realpath(p) for p in a.prefix] if a.prefix else \
+        prefix_dirs(a.steam_root or ["~/.local/share/Steam", "~/.steam/steam"])
+    if not pfxs:
+        print("no Proton prefixes found")
+    rc = 0
+    for p in pfxs:
+        try:
+            process(p, a.apply, a.max_len, a.force)
+        except OSError as e:
+            print("%s: error: %s" % (p, e), file=sys.stderr)
+            rc = 1
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

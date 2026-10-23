@@ -40,6 +40,14 @@ STEAM_LXC_NVIDIA_TWEAKS=0
 KEEPAWAKE_CONNECTORS=
 KEEPAWAKE_INTERVAL=10
 
+# 1 (default) = at each Game Mode start, before Steam, remove stale (NOTPRESENT) audio devices from every Proton prefix
+# (proton-mmdevice-clean --apply). Works around Proton 11 nesting their names one level per game start, which crashes
+# or hangs Steam Audio (e.g. VRChat). Wine re-creates present devices itself; a backup of system.reg is kept (last 3).
+# Prefixes with a running wineserver are skipped. See README "Proton audio device names".
+PROTON_MMDEV_CLEAN=1
+# Only clean prefixes whose longest stale device name exceeds this many characters (0 = always)
+PROTON_MMDEV_CLEAN_MAX_LEN=0
+
 # --- Frame shim (shims/frame/, pending better Steam Frame support in SteamOS from Valve). All off by default. ---
 # 1 = start SteamVR automatically after Steam is up and restart it on failure (systemd user unit steam-lxc-steamvr)
 FRAME_SHIM_STEAMVR_ALWAYS_ON=0

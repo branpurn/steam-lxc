@@ -15,6 +15,17 @@ if [ -n "${GAME_OUTPUT_SAVED_MODE:-}" ] && [[ $GAME_OUTPUT_SAVED_MODE == *:*x*@*
   mkdir -p "$(dirname "$mf")"; touch "$mf"
   { grep -vF "$key:" "$mf"; echo "$GAME_OUTPUT_SAVED_MODE"; } > "$mf.tmp" && mv "$mf.tmp" "$mf"
 fi
+# Proton 11 nests stale audio device names one level per wine start (README "Proton audio device names"); drop the
+# NOTPRESENT MMDevices entries from all prefixes before Steam starts. PROTON_MMDEV_CLEAN=0 disables. Never fatal.
+if [ -r /etc/default/steam-lxc ]; then
+  PROTON_MMDEV_CLEAN=$(. /etc/default/steam-lxc; echo "${PROTON_MMDEV_CLEAN:-1}")
+  PROTON_MMDEV_CLEAN_MAX_LEN=$(. /etc/default/steam-lxc; echo "${PROTON_MMDEV_CLEAN_MAX_LEN:-0}")
+fi
+[[ ${PROTON_MMDEV_CLEAN_MAX_LEN:-0} =~ ^[0-9]+$ ]] || PROTON_MMDEV_CLEAN_MAX_LEN=0
+if [ "${PROTON_MMDEV_CLEAN:-1}" = 1 ] && [ -x /usr/local/bin/proton-mmdevice-clean ]; then
+  timeout 60 /usr/local/bin/proton-mmdevice-clean --apply --max-len "${PROTON_MMDEV_CLEAN_MAX_LEN:-0}" 2>&1 \
+    | sed 's/^/proton-mmdevice-clean: /' >&2 || true
+fi
 # gamescope-session-plus counts short sessions in this file and errors if it is missing
 touch /tmp/chimeraos-short-session-tracker
 # pam_systemd adds ambient caps; Steam's srt-bwrap refuses to run with them. Drop before exec.
