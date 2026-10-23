@@ -72,6 +72,9 @@ def prefix_dirs(steam_roots):
     seen, out = set(), []
     for lib in libs:
         for reg in sorted(glob.glob(os.path.join(lib, "steamapps", "compatdata", "*", "pfx", "system.reg"))):
+            # only real app prefixes (compatdata/<appid>/pfx); skips copies like 438100.bak-fresh-...
+            if not os.path.basename(os.path.dirname(os.path.dirname(reg))).isdigit():
+                continue
             p = os.path.realpath(os.path.dirname(reg))
             if p not in seen:
                 seen.add(p)

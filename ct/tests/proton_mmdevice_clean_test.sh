@@ -8,12 +8,20 @@ ok() { if eval "$2"; then pass=$((pass+1)); echo "ok:   $1"; else fail=$((fail+1
 # fake Steam root with a second library from libraryfolders.vdf
 P1=$T/steam/steamapps/compatdata/438100/pfx; P2=$T/lib2/steamapps/compatdata/250820/pfx
 mkdir -p "$P1" "$P2"; cp "$FIX" "$P1/system.reg"; cp "$FIX" "$P2/system.reg"
+# non-numeric compatdata dir (a backup copy) must be ignored by the scan but still work via --prefix
+PB=$T/steam/steamapps/compatdata/438100.bak-fresh-20261020-2207/pfx; mkdir -p "$PB"; cp "$FIX" "$PB/system.reg"
 printf '"libraryfolders"\n{\n\t"0"\n\t{\n\t\t"path"\t\t"%s"\n\t}\n\t"1"\n\t{\n\t\t"path"\t\t"%s"\n\t}\n}\n' "$T/steam" "$T/lib2" >"$T/steam/steamapps/libraryfolders.vdf"
 
 echo "--- dry run"; "$TOOL" --steam-root "$T/steam" | tee "$T/dry"
 ok "dry run finds both library prefixes" '[ "$(grep -c "2 stale" "$T/dry")" = 2 ]'
 ok "dry run leaves files untouched" 'cmp -s "$FIX" "$P1/system.reg" && cmp -s "$FIX" "$P2/system.reg"'
 ok "dry run reports max name length" 'grep -q "longest stale name 123 chars" "$T/dry"'
+ok "scan ignores non-numeric compatdata dirs" '! grep -q "bak-fresh" "$T/dry"'
+"$TOOL" --steam-root "$T/steam" --apply --max-len 0 >/dev/null
+ok "scan apply leaves backup prefix untouched" 'cmp -s "$FIX" "$PB/system.reg" && ! ls "$PB"/system.reg.bak-* 2>/dev/null'
+cp "$FIX" "$P1/system.reg"; cp "$FIX" "$P2/system.reg"; rm -f "$P1"/system.reg.bak-* "$P2"/system.reg.bak-*
+"$TOOL" --prefix "$PB" | tee "$T/pb"
+ok "explicit --prefix on non-numeric dir still works" 'grep -q "bak-fresh.*: 5 devices, 2 stale" "$T/pb"'
 
 echo "--- name parsing / lengths"
 python3 - "$TOOL" "$FIX" >"$T/lens" <<'PY'
